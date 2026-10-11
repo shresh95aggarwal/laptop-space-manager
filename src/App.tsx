@@ -1,6 +1,6 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useMemo, useState } from 'react'
 
-type Tab = 'browse' | 'files' | 'types' | 'duplicates' | 'cleanup' | 'jobs' | 'errors'
+type Tab = 'browse' | 'files' | 'types' | 'duplicates' | 'treemap' | 'cleanup' | 'jobs' | 'errors'
 type ViewMode = 'list' | 'tiles'
 type ScanJob = {
   id: string
@@ -538,6 +538,7 @@ function App() {
                   <TabButton active={activeTab === 'files'} onClick={() => setActiveTab('files')}>Largest files</TabButton>
                   <TabButton active={activeTab === 'types'} onClick={() => setActiveTab('types')}>File types</TabButton>
                   <TabButton active={activeTab === 'duplicates'} onClick={() => setActiveTab('duplicates')}>Duplicates ({duplicateFiles.length})</TabButton>
+                  <TabButton active={activeTab === 'treemap'} onClick={() => setActiveTab('treemap')}>Visual Treemap</TabButton>
                   <TabButton active={activeTab === 'cleanup'} onClick={() => setActiveTab('cleanup')}>Cleanup ({cleanupQueue.length})</TabButton>
                   <TabButton active={activeTab === 'errors'} onClick={() => setActiveTab('errors')}>Errors / Skipped ({(result.errors || []).length})</TabButton>
                   <TabButton active={activeTab === 'jobs'} onClick={() => setActiveTab('jobs')}>Jobs ({scanJobs.length})</TabButton>
@@ -558,6 +559,18 @@ function App() {
               {activeTab === 'files' && <FilesView files={filteredLargestFiles} onQueue={addToCleanupQueue} viewMode={viewMode} />}
               {activeTab === 'types' && <TypesTable types={result.fileTypes || []} />}
               {activeTab === 'duplicates' && <Duplicates groups={result.duplicateGroups || []} onQueue={addToCleanupQueue} />}
+              {activeTab === 'treemap' && (
+                <TreemapView
+                  folders={result.largestFolders || []}
+                  files={result.largestFiles || []}
+                  totalSize={result.totals?.size || 1}
+                  onFolderOpen={(path) => {
+                    setCurrentFolder(path)
+                    setActiveTab('browse')
+                  }}
+                  onQueue={addToCleanupQueue}
+                />
+              )}
               {activeTab === 'cleanup' && (
                 <CleanupPanel
                   emptyFolders={result.emptyFolders || []}
@@ -986,6 +999,85 @@ function FolderTiles({ folders, onFolderOpen, onTrashFolder }: { folders: Folder
           </div>
         </div>
       ))}
+    </div>
+  )
+}
+
+function TreemapView({
+  folders,
+  totalSize,
+  onFolderOpen,
+}: {
+  folders: FolderSummary[]
+  files: FileSummary[]
+  totalSize: number
+  onFolderOpen: (path: string) => void
+  onQueue: (file: FileSummary) => void
+}) {
+  const topFolders = useMemo(() => {
+    return [...folders]
+      .filter((f) => (f.size || 0) > 0)
+      .sort((a, b) => (b.size || 0) - (a.size || 0))
+      .slice(0, 16)
+  }, [folders])
+
+  if (topFolders.length === 0) {
+    return <p className="note">No folder usage details available to render treemap.</p>
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <p className="note" style={{ margin: 0 }}>
+        Visual distribution of the largest storage consumers. Click any block to drill down into that folder.
+      </p>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+          gap: '12px',
+        }}
+      >
+        {topFolders.map((folder, idx) => {
+          const pct = Math.max(1, Math.round(((folder.size || 0) / totalSize) * 100))
+          const hue = (idx * 37) % 360
+          return (
+            <div
+              key={folder.path}
+              onClick={() => onFolderOpen(folder.path)}
+              style={{
+                background: `hsl(${hue}, 70%, 96%)`,
+                border: `1.5px solid hsl(${hue}, 60%, 80%)`,
+                borderRadius: '12px',
+                padding: '16px',
+                cursor: 'pointer',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                minHeight: '110px',
+                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+              }}
+              title={`Click to open: ${folder.path}`}
+            >
+              <div>
+                <strong style={{ fontSize: '0.95rem', color: '#1e293b', wordBreak: 'break-word', display: 'block' }}>
+                  📁 {folder.name}
+                </strong>
+                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  {(folder.count || 0).toLocaleString()} files
+                </span>
+              </div>
+              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontWeight: 600, color: `hsl(${hue}, 80%, 35%)`, fontSize: '0.95rem' }}>
+                  {formatBytes(folder.size || 0)}
+                </span>
+                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
+                  {pct}%
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
