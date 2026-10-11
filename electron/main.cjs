@@ -140,16 +140,25 @@ if (app) {
  * Move file or directory to the OS Recycle Bin.
  * SAFETY RULE: Never fall back to permanent deletion (such as fs.rm).
  * If trashItem fails, return/throw a clear error preserving the item.
+ *
+ * @param {string} filePath - Path to file or folder
+ * @param {object} [options] - Optional dependencies for testing/injection
+ * @param {(path: string) => Promise<void>} [options.trashItem] - Custom trash function
  */
-async function moveToTrash(filePath) {
+async function moveToTrash(filePath, options = {}) {
   if (!filePath) {
     throw new Error('Path must be specified')
   }
 
   const normalizedPath = path.normalize(path.resolve(filePath))
+  const trashFn = options.trashItem || (shell ? (p) => shell.trashItem(p) : null)
+
+  if (!trashFn) {
+    throw new Error(`Failed to move "${path.basename(normalizedPath)}" to Recycle Bin: shell.trashItem is unavailable in this environment. File was preserved.`)
+  }
 
   try {
-    await shell.trashItem(normalizedPath)
+    await trashFn(normalizedPath)
     return true
   } catch (error) {
     const errMessage = error instanceof Error ? error.message : String(error)
@@ -220,6 +229,9 @@ async function scanFolder(rootPath, options = {}) {
     try {
       entries = await fs.readdir(currentPath, { withFileTypes: true })
     } catch (error) {
+      if (error && error.code === 'SCAN_CANCELLED') {
+        throw error
+      }
       errors.push({ path: currentPath, message: error.message })
       return
     }
@@ -259,6 +271,9 @@ async function scanFolder(rootPath, options = {}) {
         progress.bytesScanned += stat.size
         reportProgress()
       } catch (error) {
+        if (error && error.code === 'SCAN_CANCELLED') {
+          throw error
+        }
         errors.push({ path: entryPath, message: error.message })
       }
     }
