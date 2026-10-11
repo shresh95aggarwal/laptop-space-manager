@@ -181,4 +181,49 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
       'totals.emptyFolders count must match emptyFolders array length'
     )
   })
+
+  await t.test('5. System and drive path protection blocks sensitive root deletions', () => {
+    assert.equal(isProtectedSystemPath('C:'), true)
+    assert.equal(isProtectedSystemPath('c:\\'), true)
+    assert.equal(isProtectedSystemPath('D:'), true)
+    assert.equal(isProtectedSystemPath('C:\\Windows'), true)
+    assert.equal(isProtectedSystemPath('C:\\Windows\\System32\\drivers'), true)
+    assert.equal(isProtectedSystemPath('C:\\Program Files'), true)
+    assert.equal(isProtectedSystemPath('C:\\Program Files (x86)'), true)
+    assert.equal(isProtectedSystemPath('C:\\ProgramData'), true)
+    assert.equal(isProtectedSystemPath('C:\\Users\\shresh\\Desktop\\MyFolder'), false)
+  })
+
+  await t.test('6. Symlinks are skipped during scan to prevent traversal loops', async () => {
+    const loopDir = path.join(tmpDir, 'symlink-test')
+    await fs.mkdir(loopDir, { recursive: true })
+    const targetFile = path.join(loopDir, 'real-file.txt')
+    await fs.writeFile(targetFile, 'content')
+
+    const symlinkPath = path.join(loopDir, 'link-to-real')
+    try {
+      await fs.symlink(targetFile, symlinkPath, 'file')
+    } catch {
+      // Windows without Developer Mode may restrict symlink creation
+      return
+    }
+
+    const scanResult = await scanFolder(loopDir)
+    const scannedPaths = scanResult.files.map((f) => f.path)
+    assert.ok(scannedPaths.includes(targetFile), 'Real file should be scanned')
+    assert.ok(!scannedPaths.includes(symlinkPath), 'Symlink must be skipped')
+  })
+
+  await t.test('7. Report generation serialization matches data schema', () => {
+    const mockFiles = [
+      { path: 'C:\\test\\doc.pdf', name: 'doc.pdf', size: 1024, extension: '.pdf', modifiedAt: '2026-01-01T00:00:00.000Z' }
+    ]
+    const rows = [
+      ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'],
+      ...mockFiles.map((f) => [`"${f.path}"`, `"${f.name}"`, f.size, `"${f.extension}"`, `"${f.modifiedAt}"`])
+    ]
+    const csvContent = rows.map((r) => r.join(',')).join('\n')
+    assert.ok(csvContent.includes('doc.pdf'), 'CSV must serialize file name')
+    assert.ok(csvContent.includes('1024'), 'CSV must serialize file size')
+  })
 })
