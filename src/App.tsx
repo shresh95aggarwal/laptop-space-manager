@@ -268,6 +268,40 @@ function App() {
     }
   }
 
+  function exportReport(format: 'json' | 'csv') {
+    if (!result) return
+    let blob: Blob
+    let filename: string
+
+    if (format === 'json') {
+      const dataStr = JSON.stringify(result, null, 2)
+      blob = new Blob([dataStr], { type: 'application/json' })
+      filename = `space-scan-report-${Date.now()}.json`
+    } else {
+      const rows = [
+        ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'],
+        ...(result.largestFiles || []).map((f) => [
+          `"${f.path.replace(/"/g, '""')}"`,
+          `"${f.name.replace(/"/g, '""')}"`,
+          f.size,
+          `"${f.extension || ''}"`,
+          `"${f.modifiedAt || ''}"`,
+        ]),
+      ]
+      const csvContent = rows.map((r) => r.join(',')).join('\n')
+      blob = new Blob([csvContent], { type: 'text/csv' })
+      filename = `space-scan-report-${Date.now()}.csv`
+    }
+
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+    setMessage(`Exported report as ${format.toUpperCase()}.`)
+  }
+
   function addToCleanupQueue(file: FileSummary) {
     setCleanupQueue((items) => items.some((item) => item.path === file.path) ? items : [...items, file])
     setMessage('File added to cleanup queue.')
@@ -509,6 +543,8 @@ function App() {
                   <TabButton active={activeTab === 'jobs'} onClick={() => setActiveTab('jobs')}>Jobs ({scanJobs.length})</TabButton>
                 </div>
                 <div className="view-toggle" aria-label="View mode">
+                  <button className="small-button" onClick={() => exportReport('csv')}>Export CSV</button>
+                  <button className="small-button" onClick={() => exportReport('json')}>Export JSON</button>
                   <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>List</button>
                   <button className={viewMode === 'tiles' ? 'active' : ''} onClick={() => setViewMode('tiles')}>Tiles</button>
                 </div>
