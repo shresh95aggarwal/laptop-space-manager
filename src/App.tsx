@@ -743,6 +743,7 @@ type SortOrder = 'asc' | 'desc'
 function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: FileSummary) => void }) {
   const [sortField, setSortField] = useState<SortField>('size')
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+  const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
 
   const toggleSort = (field: SortField) => {
     if (sortField === field) {
@@ -764,13 +765,63 @@ function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: 
     })
   }, [files, sortField, sortOrder])
 
+  const toggleSelectAll = () => {
+    if (selectedPaths.size === sortedFiles.length) {
+      setSelectedPaths(new Set())
+    } else {
+      setSelectedPaths(new Set(sortedFiles.map((f) => f.path)))
+    }
+  }
+
+  const toggleSelectOne = (filePath: string) => {
+    const updated = new Set(selectedPaths)
+    if (updated.has(filePath)) {
+      updated.delete(filePath)
+    } else {
+      updated.add(filePath)
+    }
+    setSelectedPaths(updated)
+  }
+
+  const queueSelected = () => {
+    const selectedFiles = sortedFiles.filter((f) => selectedPaths.has(f.path))
+    selectedFiles.forEach((f) => onQueue(f))
+    setSelectedPaths(new Set())
+  }
+
+  const selectedTotalSize = sortedFiles
+    .filter((f) => selectedPaths.has(f.path))
+    .reduce((sum, f) => sum + (f.size || 0), 0)
+
   const sortIndicator = (field: SortField) => sortField === field ? (sortOrder === 'asc' ? ' ▲' : ' ▼') : ''
 
   return (
     <div className="table-wrap">
+      {selectedPaths.size > 0 && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', padding: '10px 14px', borderRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+          <span style={{ fontSize: '0.9rem', color: '#166534' }}>
+            Selected <strong>{selectedPaths.size}</strong> file(s) ({formatBytes(selectedTotalSize)})
+          </span>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button className="small-button" onClick={() => setSelectedPaths(new Set())}>Deselect all</button>
+            <button className="primary-button" style={{ padding: '6px 14px', fontSize: '0.85rem' }} onClick={queueSelected}>
+              Queue selected ({selectedPaths.size})
+            </button>
+          </div>
+        </div>
+      )}
+
       <table>
         <thead>
           <tr>
+            <th style={{ width: '40px', textAlign: 'center' }}>
+              <input
+                type="checkbox"
+                checked={sortedFiles.length > 0 && selectedPaths.size === sortedFiles.length}
+                onChange={toggleSelectAll}
+                title="Select all"
+              />
+            </th>
             <th onClick={() => toggleSort('name')} style={{ cursor: 'pointer' }}>Name{sortIndicator('name')}</th>
             <th onClick={() => toggleSort('extension')} style={{ cursor: 'pointer' }}>Type{sortIndicator('extension')}</th>
             <th onClick={() => toggleSort('size')} style={{ cursor: 'pointer' }}>Size{sortIndicator('size')}</th>
@@ -780,7 +831,14 @@ function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: 
         </thead>
         <tbody>
           {sortedFiles.map((file) => (
-            <tr key={file.path}>
+            <tr key={file.path} style={{ background: selectedPaths.has(file.path) ? '#f8fafc' : undefined }}>
+              <td style={{ textAlign: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={selectedPaths.has(file.path)}
+                  onChange={() => toggleSelectOne(file.path)}
+                />
+              </td>
               <td title={file.path}>{fileIcon(file.extension)} {file.name}</td>
               <td>{file.extension}</td>
               <td>{formatBytes(file.size || 0)}</td>
