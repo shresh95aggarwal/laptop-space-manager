@@ -1106,6 +1106,68 @@ function FolderTiles({ folders, onFolderOpen, onTrashFolder }: { folders: Folder
   )
 }
 
+interface TreemapRect {
+  x: number
+  y: number
+  w: number
+  h: number
+  folder: FolderSummary
+  pct: number
+  hue: number
+}
+
+function layoutTreemap(
+  items: FolderSummary[],
+  totalSize: number,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  colorOffset = 0
+): TreemapRect[] {
+  if (items.length === 0 || w <= 0 || h <= 0) return []
+
+  if (items.length === 1) {
+    const item = items[0]
+    const pct = Math.max(1, Math.round(((item.size || 0) / (totalSize || 1)) * 100))
+    return [{ x, y, w, h, folder: item, pct, hue: (colorOffset * 37) % 360 }]
+  }
+
+  const groupTotal = items.reduce((s, it) => s + (it.size || 0), 0)
+  if (groupTotal <= 0) return []
+
+  let halfSize = 0
+  let splitIndex = 0
+  for (let i = 0; i < items.length; i++) {
+    halfSize += items[i].size || 0
+    if (halfSize >= groupTotal / 2 || i === items.length - 2) {
+      splitIndex = i + 1
+      break
+    }
+  }
+
+  const group1 = items.slice(0, splitIndex)
+  const group2 = items.slice(splitIndex)
+  const g1Size = group1.reduce((s, it) => s + (it.size || 0), 0)
+  const ratio = g1Size / groupTotal
+
+  if (w >= h) {
+    const w1 = w * ratio
+    const w2 = w - w1
+    return [
+      ...layoutTreemap(group1, totalSize, x, y, w1, h, colorOffset),
+      ...layoutTreemap(group2, totalSize, x + w1, y, w2, h, colorOffset + group1.length),
+    ]
+  } else {
+    const h1 = h * ratio
+    const h2 = h - h1
+    return [
+      ...layoutTreemap(group1, totalSize, x, y, w, h1, colorOffset),
+      ...layoutTreemap(group2, totalSize, x, y + h1, w, h2, colorOffset + group1.length),
+    ]
+  }
+}
+
 function TreemapView({
   folders,
   totalSize,
@@ -1121,65 +1183,116 @@ function TreemapView({
     return [...folders]
       .filter((f) => (f.size || 0) > 0)
       .sort((a, b) => (b.size || 0) - (a.size || 0))
-      .slice(0, 16)
+      .slice(0, 24)
   }, [folders])
+
+  const rects = useMemo(() => {
+    return layoutTreemap(topFolders, totalSize, 0, 0, 100, 100)
+  }, [topFolders, totalSize])
 
   if (topFolders.length === 0) {
     return <p className="note">No folder usage details available to render treemap.</p>
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      <p className="note" style={{ margin: 0 }}>
-        Visual distribution of the largest storage consumers. Click any block to drill down into that folder.
-      </p>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <p className="note" style={{ margin: 0 }}>
+          Proportional area treemap: Each block area reflects actual storage consumption. Click to drill in.
+        </p>
+      </div>
+
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-          gap: '12px',
+          position: 'relative',
+          width: '100%',
+          height: '520px',
+          background: '#f1f5f9',
+          borderRadius: '14px',
+          overflow: 'hidden',
+          border: '1px solid #cbd5e1',
+          boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.03)',
         }}
       >
-        {topFolders.map((folder, idx) => {
-          const pct = Math.max(1, Math.round(((folder.size || 0) / totalSize) * 100))
-          const hue = (idx * 37) % 360
-          return (
-            <div
-              key={folder.path}
-              onClick={() => onFolderOpen(folder.path)}
-              style={{
-                background: `hsl(${hue}, 70%, 96%)`,
-                border: `1.5px solid hsl(${hue}, 60%, 80%)`,
-                borderRadius: '12px',
-                padding: '16px',
-                cursor: 'pointer',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between',
-                minHeight: '110px',
-                transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-              }}
-              title={`Click to open: ${folder.path}`}
-            >
-              <div>
-                <strong style={{ fontSize: '0.95rem', color: '#1e293b', wordBreak: 'break-word', display: 'block' }}>
-                  📁 {folder.name}
+        {rects.map((rect) => (
+          <div
+            key={rect.folder.path}
+            onClick={() => onFolderOpen(rect.folder.path)}
+            title={`${rect.folder.name}\n${formatBytes(rect.folder.size || 0)} (${rect.pct}%)\n${(rect.folder.count || 0).toLocaleString()} files\nClick to drill down`}
+            style={{
+              position: 'absolute',
+              left: `${rect.x}%`,
+              top: `${rect.y}%`,
+              width: `${rect.w}%`,
+              height: `${rect.h}%`,
+              boxSizing: 'border-box',
+              padding: rect.w > 12 && rect.h > 10 ? '8px 10px' : '4px',
+              border: '1.5px solid #ffffff',
+              background: `hsl(${rect.hue}, 70%, 94%)`,
+              cursor: 'pointer',
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              overflow: 'hidden',
+              transition: 'filter 0.15s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.filter = 'brightness(0.92)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.filter = 'none'
+            }}
+          >
+            {rect.w >= 8 && rect.h >= 8 && (
+              <div style={{ overflow: 'hidden', pointerEvents: 'none' }}>
+                <strong
+                  style={{
+                    fontSize: rect.w > 18 && rect.h > 15 ? '0.9rem' : '0.78rem',
+                    color: '#0f172a',
+                    display: 'block',
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                    overflow: 'hidden',
+                  }}
+                >
+                  📁 {rect.folder.name}
                 </strong>
-                <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  {(folder.count || 0).toLocaleString()} files
-                </span>
+                {rect.w > 14 && rect.h > 14 && (
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', display: 'block' }}>
+                    {(rect.folder.count || 0).toLocaleString()} files
+                  </span>
+                )}
               </div>
-              <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                <span style={{ fontWeight: 600, color: `hsl(${hue}, 80%, 35%)`, fontSize: '0.95rem' }}>
-                  {formatBytes(folder.size || 0)}
+            )}
+
+            {rect.w >= 10 && rect.h >= 10 && (
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'baseline',
+                  pointerEvents: 'none',
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 600,
+                    color: `hsl(${rect.hue}, 85%, 30%)`,
+                    fontSize: rect.w > 18 && rect.h > 15 ? '0.85rem' : '0.75rem',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {formatBytes(rect.folder.size || 0)}
                 </span>
-                <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 500 }}>
-                  {pct}%
-                </span>
+                {rect.w > 14 && (
+                  <span style={{ fontSize: '0.75rem', color: '#64748b', fontWeight: 600 }}>
+                    {rect.pct}%
+                  </span>
+                )}
               </div>
-            </div>
-          )
-        })}
+            )}
+          </div>
+        ))}
       </div>
     </div>
   )
