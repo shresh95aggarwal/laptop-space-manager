@@ -73,6 +73,14 @@ function App() {
   const [minSizeMb, setMinSizeMb] = useState('')
   const [cleanupQueue, setCleanupQueue] = useState<FileSummary[]>([])
   const [diskSpace, setDiskSpace] = useState<{ total: number; free: number; used: number } | null>(null)
+  const [scanHistory, setScanHistory] = useState<ScanResult[]>(() => {
+    try {
+      const saved = localStorage.getItem('lsm_scan_history')
+      return saved ? JSON.parse(saved) : []
+    } catch {
+      return []
+    }
+  })
   const [message, setMessage] = useState('Select one or more folders to begin scanning.')
 
   useEffect(() => {
@@ -146,6 +154,19 @@ function App() {
     setMessage('Select one or more folders to begin scanning.')
   }
 
+  function saveToHistory(newResult: ScanResult) {
+    setScanHistory((prev) => {
+      const filtered = prev.filter((r) => r.rootPath !== newResult.rootPath)
+      const updated = [newResult, ...filtered].slice(0, 5)
+      try {
+        localStorage.setItem('lsm_scan_history', JSON.stringify(updated))
+      } catch {
+        // quota safety
+      }
+      return updated
+    })
+  }
+
   async function startFastScan() {
     if (selectedLocations.length === 0) return
 
@@ -178,6 +199,7 @@ function App() {
       setActiveTab('browse')
       setMessage(`Fast scan complete in ${((lastResult.durationMs || 0) / 1000).toFixed(1)}s!`)
       window.spaceManager.getDiskSpace(lastResult.rootPath).then(setDiskSpace).catch(() => {})
+      saveToHistory(lastResult)
     }
 
     setIsScanning(false)
@@ -229,6 +251,7 @@ function App() {
       setActiveTab('browse')
       setMessage(`Full scan complete! All sizes, duplicates, and suggestions are ready.`)
       window.spaceManager.getDiskSpace(lastResult.rootPath).then(setDiskSpace).catch(() => {})
+      saveToHistory(lastResult)
     }
 
     setIsScanning(false)
@@ -531,6 +554,29 @@ function App() {
             {commonLocations.map((location) => (
               <button key={location.path} onClick={() => addCommonLocation(location.path)}>{location.label}</button>
             ))}
+          </section>
+        )}
+
+        {selectedLocations.length === 0 && scanHistory.length > 0 && !result && (
+          <section className="stat-card" style={{ marginTop: '16px', background: '#f8fafc' }}>
+            <strong style={{ display: 'block', marginBottom: '8px' }}>Recent Scans:</strong>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {scanHistory.map((hist) => (
+                <button
+                  key={hist.rootPath}
+                  className="small-button"
+                  onClick={() => {
+                    setResult(hist)
+                    setCurrentFolder(hist.rootPath)
+                    setActiveTab('browse')
+                    setMessage(`Loaded scan report for "${hist.rootPath}" from history.`)
+                  }}
+                  title={`Scanned ${formatBytes(hist.totals?.size || 0)}`}
+                >
+                  🕒 {hist.rootPath} ({formatBytes(hist.totals?.size || 0)})
+                </button>
+              ))}
+            </div>
           </section>
         )}
 
@@ -943,8 +989,41 @@ function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: 
   )
 }
 
+const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'])
+
 function FileTiles({ files, onQueue }: { files: FileSummary[]; onQueue: (file: FileSummary) => void }) {
-  return <div className="tile-grid">{(files || []).map((file) => <article className="tile" key={file.path} title={file.path}><div className="tile-icon">{fileIcon(file.extension)}</div><strong>{file.name}</strong><span>{formatBytes(file.size || 0)} · {file.extension}</span><div className="actions"><button onClick={() => window.spaceManager.openPath(file.path)}>Show</button><button onClick={() => onQueue(file)}>Queue</button></div></article>)}</div>
+  return (
+    <div className="tile-grid">
+      {(files || []).map((file) => {
+        const isImage = imageExtensions.has(file.extension.toLowerCase())
+        return (
+          <article className="tile" key={file.path} title={file.path}>
+            <div className="tile-icon" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              {isImage ? (
+                <img
+                  src={`atom://${file.path}`}
+                  alt={file.name}
+                  onError={(e) => {
+                    // Fallback to text icon if atom protocol or local load fails
+                    e.currentTarget.style.display = 'none'
+                  }}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '6px' }}
+                />
+              ) : (
+                fileIcon(file.extension)
+              )}
+            </div>
+            <strong>{file.name}</strong>
+            <span>{formatBytes(file.size || 0)} · {file.extension}</span>
+            <div className="actions">
+              <button onClick={() => window.spaceManager.openPath(file.path)}>Show</button>
+              <button onClick={() => onQueue(file)}>Queue</button>
+            </div>
+          </article>
+        )
+      })}
+    </div>
+  )
 }
 
 function TypesTable({ types }: { types: TypeSummary[] }) {

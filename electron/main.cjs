@@ -1,5 +1,5 @@
 const electron = require('electron')
-const { app, BrowserWindow, dialog, ipcMain, shell } = electron || {}
+const { app, BrowserWindow, dialog, ipcMain, shell, protocol } = electron || {}
 const crypto = require('node:crypto')
 const fs = require('node:fs/promises')
 const fsSync = require('node:fs')
@@ -33,6 +33,14 @@ function createWindow() {
 
 if (app) {
   app.whenReady().then(() => {
+    if (protocol) {
+      protocol.registerFileProtocol('atom', (request, callback) => {
+        const url = request.url.replace(/^atom:\/\//, '')
+        const decoded = decodeURI(url)
+        callback({ path: path.normalize(decoded) })
+      })
+    }
+
     createWindow()
 
     app.on('activate', () => {
