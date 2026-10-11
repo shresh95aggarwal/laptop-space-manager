@@ -737,11 +737,63 @@ function FilesView({ files, onQueue, viewMode }: { files: FileSummary[]; onQueue
   return viewMode === 'list' ? <FilesTable files={files} onQueue={onQueue} /> : <FileTiles files={files} onQueue={onQueue} />
 }
 
+type SortField = 'name' | 'size' | 'modifiedAt' | 'count' | 'extension'
+type SortOrder = 'asc' | 'desc'
+
 function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: FileSummary) => void }) {
+  const [sortField, setSortField] = useState<SortField>('size')
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc')
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortOrder('desc')
+    }
+  }
+
+  const sortedFiles = useMemo(() => {
+    return [...(files || [])].sort((a, b) => {
+      let comparison = 0
+      if (sortField === 'name') comparison = (a.name || '').localeCompare(b.name || '')
+      else if (sortField === 'extension') comparison = (a.extension || '').localeCompare(b.extension || '')
+      else if (sortField === 'size') comparison = (a.size || 0) - (b.size || 0)
+      else if (sortField === 'modifiedAt') comparison = new Date(a.modifiedAt || 0).getTime() - new Date(b.modifiedAt || 0).getTime()
+      return sortOrder === 'asc' ? comparison : -comparison
+    })
+  }, [files, sortField, sortOrder])
+
+  const sortIndicator = (field: SortField) => sortField === field ? (sortOrder === 'asc' ? ' ▲' : ' ▼') : ''
+
   return (
-    <div className="table-wrap"><table><thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Modified</th><th>Actions</th></tr></thead><tbody>
-      {(files || []).map((file) => <tr key={file.path}><td title={file.path}>{fileIcon(file.extension)} {file.name}</td><td>{file.extension}</td><td>{formatBytes(file.size || 0)}</td><td>{file.modifiedAt ? new Date(file.modifiedAt).toLocaleDateString() : '-'}</td><td className="actions"><button onClick={() => window.spaceManager.openPath(file.path)}>Show</button><button onClick={() => onQueue(file)}>Queue</button></td></tr>)}
-    </tbody></table></div>
+    <div className="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th onClick={() => toggleSort('name')} style={{ cursor: 'pointer' }}>Name{sortIndicator('name')}</th>
+            <th onClick={() => toggleSort('extension')} style={{ cursor: 'pointer' }}>Type{sortIndicator('extension')}</th>
+            <th onClick={() => toggleSort('size')} style={{ cursor: 'pointer' }}>Size{sortIndicator('size')}</th>
+            <th onClick={() => toggleSort('modifiedAt')} style={{ cursor: 'pointer' }}>Modified{sortIndicator('modifiedAt')}</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedFiles.map((file) => (
+            <tr key={file.path}>
+              <td title={file.path}>{fileIcon(file.extension)} {file.name}</td>
+              <td>{file.extension}</td>
+              <td>{formatBytes(file.size || 0)}</td>
+              <td>{file.modifiedAt ? new Date(file.modifiedAt).toLocaleDateString() : '-'}</td>
+              <td className="actions">
+                <button onClick={() => window.spaceManager.openPath(file.path)}>Show</button>
+                <button onClick={() => onQueue(file)}>Queue</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -754,19 +806,43 @@ function TypesTable({ types }: { types: TypeSummary[] }) {
 }
 
 function FoldersTable({ folders, onFolderOpen, onTrashFolder }: { folders: FolderSummary[]; onFolderOpen: (path: string) => void; onTrashFolder: (path: string, name: string) => void }) {
+  const [sortField, setSortField] = useState<'name' | 'count' | 'size'>('size')
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc')
+
+  const toggleSort = (field: 'name' | 'count' | 'size') => {
+    if (sortField === field) {
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortField(field)
+      setSortOrder('desc')
+    }
+  }
+
+  const sortedFolders = useMemo(() => {
+    return [...(folders || [])].sort((a, b) => {
+      let comparison = 0
+      if (sortField === 'name') comparison = (a.name || '').localeCompare(b.name || '')
+      else if (sortField === 'count') comparison = (a.count || 0) - (b.count || 0)
+      else if (sortField === 'size') comparison = (a.size || 0) - (b.size || 0)
+      return sortOrder === 'asc' ? comparison : -comparison
+    })
+  }, [folders, sortField, sortOrder])
+
+  const sortIndicator = (field: 'name' | 'count' | 'size') => sortField === field ? (sortOrder === 'asc' ? ' ▲' : ' ▼') : ''
+
   return (
     <div className="table-wrap">
       <table>
         <thead>
           <tr>
-            <th>Folder</th>
-            <th>Files inside</th>
-            <th>Total size</th>
+            <th onClick={() => toggleSort('name')} style={{ cursor: 'pointer' }}>Folder{sortIndicator('name')}</th>
+            <th onClick={() => toggleSort('count')} style={{ cursor: 'pointer' }}>Files inside{sortIndicator('count')}</th>
+            <th onClick={() => toggleSort('size')} style={{ cursor: 'pointer' }}>Total size{sortIndicator('size')}</th>
             <th>Actions</th>
           </tr>
         </thead>
         <tbody>
-          {(folders || []).map((folder) => (
+          {sortedFolders.map((folder) => (
             <tr key={folder.path}>
               <td title={folder.path}>📁 {folder.name} {folder.count === 0 ? <span className="badge-empty">Empty</span> : null}</td>
               <td>{(folder.count || 0).toLocaleString()}</td>
