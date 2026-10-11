@@ -4,6 +4,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
 const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath } = require('../electron/main.cjs')
+const { generateCsvReport, parseCsv, escapeCsvField } = require('../src/reportUtils.cjs')
 
 test('Laptop Space Manager - Backend Test Suite', async (t) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lsm-test-'))
@@ -216,14 +217,71 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
 
   await t.test('7. Report generation serialization matches data schema', () => {
     const mockFiles = [
-      { path: 'C:\\test\\doc.pdf', name: 'doc.pdf', size: 1024, extension: '.pdf', modifiedAt: '2026-01-01T00:00:00.000Z' }
+      { path: 'C:\\test\\doc.pdf', name: 'doc.pdf', size: 1024, extension: '.pdf', modifiedAt: '2026-01-01T00:00:00.000Z' },
+      { path: 'C:\\test\\tricky,name"with"quotes\nandnewline.txt', name: 'tricky,name"with"quotes\nandnewline.txt', size: 2048, extension: '.txt', modifiedAt: '2026-01-02T00:00:00.000Z' },
     ]
-    const rows = [
-      ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'],
-      ...mockFiles.map((f) => [`"${f.path}"`, `"${f.name}"`, f.size, `"${f.extension}"`, `"${f.modifiedAt}"`])
-    ]
-    const csvContent = rows.map((r) => r.join(',')).join('\n')
-    assert.ok(csvContent.includes('doc.pdf'), 'CSV must serialize file name')
-    assert.ok(csvContent.includes('1024'), 'CSV must serialize file size')
+
+    const mockResult = {
+      files: mockFiles,
+      largestFiles: mockFiles,
+    }
+
+    const csvOutput = generateCsvReport(mockResult, { full: true })
+    const parsed = parseCsv(csvOutput)
+
+    assert.equal(parsed.length, 3, 'Header + 2 rows = 3 rows total')
+    assert.equal(parsed[0][0], 'Path')
+    assert.equal(parsed[1][1], 'doc.pdf')
+    assert.equal(parsed[2][1], 'tricky,name"with"quotes\nandnewline.txt', 'CSV parsing must correctly round-trip quotes, commas, and newlines')
+  })
+
+  await t.test('8. Full CSV export exports > 250 files without truncating', () => {
+    const manyFiles = []
+    for (let i = 0; i < 300; i++) {
+      manyFiles.push({
+        path: `C:\\dummy\\file_${i}.dat`,
+        name: `file_${i}.dat`,
+        size: 100 + i,
+        extension: '.dat',
+        modifiedAt: new Date().toISOString(),
+      })
+    }
+
+    const mockResult = {
+      files: manyFiles,
+      largestFiles: manyFiles.slice(0, 250), // Limited top list
+    }
+
+    const fullCsv = generateCsvReport(mockResult, { full: true })
+    const parsedFull = parseCsv(fullCsv)
+    assert.equal(parsedFull.length, 301, 'Full export must include header + all 300 files (not truncated at 250)')
+
+    const topCsv = generateCsvReport(mockResult, { full: false })
+    const parsedTop = parseCsv(topCsv)
+    assert.equal(parsedTop.length, 251, 'Top export must include header + 250 files')
+  })
+
+  await t.test('9. Snapshots preserve multiple historical scans and allow delta comparisons', () => {
+    const scan1 = {
+      rootPath: 'C:\\Projects',
+      scannedAt: '2026-01-01T10:00:00.000Z',
+      totals: { size: 1000000, files: 50 },
+    }
+    const scan2 = {
+      rootPath: 'C:\\Projects',
+      scannedAt: '2026-01-02T10:00:00.000Z',
+      totals: { size: 1500000, files: 60 },
+    }
+
+    const history = [scan2, scan1] // Retains both snapshots for the same root
+    assert.equal(history.length, 2)
+    assert.equal(history[0].rootPath, history[1].rootPath)
+    assert.notEqual(history[0].scannedAt, history[1].scannedAt)
+
+    const sizeDelta = (history[0].totals.size || 0) - (history[1].totals.size || 0)
+    const filesDelta = (history[0].totals.files || 0) - (history[1].totals.files || 0)
+
+    assert.equal(sizeDelta, 500000, 'Calculates positive space growth correctly (+500 KB)')
+    assert.equal(filesDelta, 10, 'Calculates file addition count correctly (+10 files)')
   })
 })

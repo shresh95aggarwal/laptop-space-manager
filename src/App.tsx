@@ -156,8 +156,12 @@ function App() {
 
   function saveToHistory(newResult: ScanResult) {
     setScanHistory((prev) => {
-      const filtered = prev.filter((r) => r.rootPath !== newResult.rootPath)
-      const updated = [newResult, ...filtered].slice(0, 5)
+      // Keep historical snapshots per scan with timestamp
+      const snapshot: ScanResult = {
+        ...newResult,
+        scannedAt: newResult.scannedAt || new Date().toISOString(),
+      }
+      const updated = [snapshot, ...prev].slice(0, 10) // Keep last 10 snapshots
       try {
         localStorage.setItem('lsm_scan_history', JSON.stringify(updated))
       } catch {
@@ -291,38 +295,43 @@ function App() {
     }
   }
 
-  function exportReport(format: 'json' | 'csv') {
+  function exportReport(format: 'json' | 'csv', full = true) {
     if (!result) return
-    let blob: Blob
-    let filename: string
+    try {
+      let blob: Blob
+      let filename: string
 
-    if (format === 'json') {
-      const dataStr = JSON.stringify(result, null, 2)
-      blob = new Blob([dataStr], { type: 'application/json' })
-      filename = `space-scan-report-${Date.now()}.json`
-    } else {
-      const rows = [
-        ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'],
-        ...(result.largestFiles || []).map((f) => [
-          `"${f.path.replace(/"/g, '""')}"`,
-          `"${f.name.replace(/"/g, '""')}"`,
-          f.size,
-          `"${f.extension || ''}"`,
-          `"${f.modifiedAt || ''}"`,
-        ]),
-      ]
-      const csvContent = rows.map((r) => r.join(',')).join('\n')
-      blob = new Blob([csvContent], { type: 'text/csv' })
-      filename = `space-scan-report-${Date.now()}.csv`
+      if (format === 'json') {
+        const dataStr = JSON.stringify(result, null, 2)
+        blob = new Blob([dataStr], { type: 'application/json' })
+        filename = `space-scan-report-${Date.now()}.json`
+      } else {
+        const filesToExport = full && result.files && result.files.length > 0 ? result.files : (result.largestFiles || [])
+        const escapeCsv = (val: unknown) => `"${String(val ?? '').replace(/"/g, '""')}"`
+        const header = ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'].map(escapeCsv).join(',')
+        const rows = filesToExport.map((f) => [
+          escapeCsv(f.path),
+          escapeCsv(f.name),
+          escapeCsv(f.size ?? 0),
+          escapeCsv(f.extension ?? ''),
+          escapeCsv(f.modifiedAt ?? ''),
+        ].join(','))
+        const csvContent = [header, ...rows].join('\r\n')
+        blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+        filename = `space-scan-report-${full ? 'full' : 'top'}-${Date.now()}.csv`
+      }
+
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename
+      a.click()
+      URL.revokeObjectURL(url)
+      setMessage(`Exported ${full ? 'full' : 'summary'} report as ${format.toUpperCase()}.`)
+    } catch (err) {
+      console.error('Export failed:', err)
+      setMessage(`Export error: ${err instanceof Error ? err.message : 'Failed to export'}`)
     }
-
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-    setMessage(`Exported report as ${format.toUpperCase()}.`)
   }
 
   function addToCleanupQueue(file: FileSummary) {
@@ -614,8 +623,9 @@ function App() {
                   <TabButton active={activeTab === 'jobs'} onClick={() => setActiveTab('jobs')}>Jobs ({scanJobs.length})</TabButton>
                 </div>
                 <div className="view-toggle" aria-label="View mode">
-                  <button className="small-button" onClick={() => exportReport('csv')}>Export CSV</button>
-                  <button className="small-button" onClick={() => exportReport('json')}>Export JSON</button>
+                  <button className="small-button" title="Export all scanned files as CSV" onClick={() => exportReport('csv', true)}>Export Full CSV</button>
+                  <button className="small-button" title="Export top largest files as CSV" onClick={() => exportReport('csv', false)}>Top CSV</button>
+                  <button className="small-button" title="Export full report as JSON" onClick={() => exportReport('json')}>Export JSON</button>
                   <button className={viewMode === 'list' ? 'active' : ''} onClick={() => setViewMode('list')}>List</button>
                   <button className={viewMode === 'tiles' ? 'active' : ''} onClick={() => setViewMode('tiles')}>Tiles</button>
                 </div>
@@ -991,37 +1001,40 @@ function FilesTable({ files, onQueue }: { files: FileSummary[]; onQueue: (file: 
 
 const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'])
 
+function FileTileItem({ file, onQueue }: { file: FileSummary; onQueue: (file: FileSummary) => void }) {
+  const [imgFailed, setImgFailed] = useState(false)
+  const isImage = imageExtensions.has(file.extension.toLowerCase())
+
+  return (
+    <article className="tile" title={file.path}>
+      <div className="tile-icon" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {isImage && !imgFailed ? (
+          <img
+            src={`atom://${file.path}`}
+            alt={file.name}
+            onError={() => setImgFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '6px' }}
+          />
+        ) : (
+          fileIcon(file.extension)
+        )}
+      </div>
+      <strong>{file.name}</strong>
+      <span>{formatBytes(file.size || 0)} · {file.extension}</span>
+      <div className="actions">
+        <button onClick={() => window.spaceManager.openPath(file.path)}>Show</button>
+        <button onClick={() => onQueue(file)}>Queue</button>
+      </div>
+    </article>
+  )
+}
+
 function FileTiles({ files, onQueue }: { files: FileSummary[]; onQueue: (file: FileSummary) => void }) {
   return (
     <div className="tile-grid">
-      {(files || []).map((file) => {
-        const isImage = imageExtensions.has(file.extension.toLowerCase())
-        return (
-          <article className="tile" key={file.path} title={file.path}>
-            <div className="tile-icon" style={{ overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              {isImage ? (
-                <img
-                  src={`atom://${file.path}`}
-                  alt={file.name}
-                  onError={(e) => {
-                    // Fallback to text icon if atom protocol or local load fails
-                    e.currentTarget.style.display = 'none'
-                  }}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '6px' }}
-                />
-              ) : (
-                fileIcon(file.extension)
-              )}
-            </div>
-            <strong>{file.name}</strong>
-            <span>{formatBytes(file.size || 0)} · {file.extension}</span>
-            <div className="actions">
-              <button onClick={() => window.spaceManager.openPath(file.path)}>Show</button>
-              <button onClick={() => onQueue(file)}>Queue</button>
-            </div>
-          </article>
-        )
-      })}
+      {(files || []).map((file) => (
+        <FileTileItem key={file.path} file={file} onQueue={onQueue} />
+      ))}
     </div>
   )
 }

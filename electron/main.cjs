@@ -35,9 +35,20 @@ if (app) {
   app.whenReady().then(() => {
     if (protocol) {
       protocol.registerFileProtocol('atom', (request, callback) => {
-        const url = request.url.replace(/^atom:\/\//, '')
-        const decoded = decodeURI(url)
-        callback({ path: path.normalize(decoded) })
+        try {
+          const url = request.url.replace(/^atom:\/\//, '')
+          const decoded = decodeURI(url)
+          const normalized = path.normalize(path.resolve(decoded))
+
+          // Scope check: do not serve sensitive windows directories
+          if (isProtectedSystemPath(normalized)) {
+            return callback({ error: -6 }) // FILE_NOT_FOUND / ACCESS_DENIED
+          }
+
+          callback({ path: normalized })
+        } catch {
+          callback({ error: -2 }) // FAILED
+        }
       })
     }
 
