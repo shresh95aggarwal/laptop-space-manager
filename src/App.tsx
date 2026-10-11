@@ -595,12 +595,28 @@ function Stat({ label, value }: { label: string; value: string }) {
 }
 
 function ScanProgressCard({ progress }: { progress: ScanProgress }) {
+  const isHashing = progress.phase === 'hashing'
   return (
     <div className="progress-card">
-      <div className="progress-row"><span>Files</span><strong>{(progress.filesScanned || 0).toLocaleString()}</strong></div>
-      <div className="progress-row"><span>Folders</span><strong>{(progress.foldersScanned || 0).toLocaleString()}</strong></div>
+      <div className="progress-row">
+        <span>{isHashing ? 'Status' : 'Phase'}</span>
+        <strong>{isHashing ? 'Hashing duplicates' : 'Scanning structure'}</strong>
+      </div>
+      {isHashing ? (
+        <div className="progress-row">
+          <span>Files hashed</span>
+          <strong>{(progress.filesHashed || 0).toLocaleString()} / {(progress.totalToHash || 0).toLocaleString()}</strong>
+        </div>
+      ) : (
+        <>
+          <div className="progress-row"><span>Files</span><strong>{(progress.filesScanned || 0).toLocaleString()}</strong></div>
+          <div className="progress-row"><span>Folders</span><strong>{(progress.foldersScanned || 0).toLocaleString()}</strong></div>
+        </>
+      )}
       <div className="progress-row"><span>Scanned</span><strong>{formatBytes(progress.bytesScanned || 0)}</strong></div>
-      <div className="progress-row"><span>Elapsed</span><strong>{((progress.elapsedMs || 0) / 1000).toFixed(1)}s</strong></div>
+      {progress.elapsedMs > 0 && (
+        <div className="progress-row"><span>Elapsed</span><strong>{((progress.elapsedMs || 0) / 1000).toFixed(1)}s</strong></div>
+      )}
       <p title={progress.currentPath}>{progress.currentPath}</p>
     </div>
   )

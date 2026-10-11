@@ -51,11 +51,14 @@ type ScanResult = {
 }
 
 type ScanProgress = {
+  phase?: 'scanning' | 'hashing'
   currentPath: string
   filesScanned: number
   foldersScanned: number
   bytesScanned: number
-  startedAt: string
+  filesHashed?: number
+  totalToHash?: number
+  startedAt?: string
   elapsedMs: number
 }
 

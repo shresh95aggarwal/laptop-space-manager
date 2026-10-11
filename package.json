@@ -9,7 +9,8 @@
     "dev": "concurrently -k \"vite\" \"wait-on tcp:5173 && electron .\"",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "node --test tests/app.test.cjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",

@@ -50,16 +50,22 @@ The app should be visual, practical, and safe by default.
 ## Safety principles
 
 - Do not permanently delete files or folders
-- Use the Windows Recycle Bin for all delete actions
+- All deletions use the Windows Recycle Bin (`shell.trashItem`). If movement to Recycle Bin fails, an explicit error is returned and the item is preserved on disk (no destructive `fs.rm` fallbacks)
 - Ask confirmation before moving files or folders to trash
 - Encourage users to start with personal folders like Downloads, Documents, Pictures, Videos, and Desktop
 - Avoid system folders by default
+
+## Empty folder definition
+
+A folder is defined as empty if it contains **0 regular files** across itself and any subdirectories (excluding ignored system/build directories such as `.git`, `node_modules`, and `$Recycle.Bin`). Subdirectories containing no files are also categorized as empty folders.
 
 ## Performance direction
 
 1. Fast scan first: folder sizes, file sizes, file types, empty folders
 2. Full scan: runs fast scan + duplicate content-hashing in one automated sequence
-3. Live state mutation: immediately removes trashed items from memory so re-scanning is not required after deletion
+3. Streaming SHA-256 duplicate hashing: reads files in chunks with low memory overhead rather than loading entire files into memory
+4. End-to-end cancellation: cancelling halts directory traversal and content hashing immediately
+5. Live state mutation: immediately removes trashed items from memory so re-scanning is not required after deletion
 
 ## Inspiration from existing tools
 
