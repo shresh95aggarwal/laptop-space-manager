@@ -284,6 +284,9 @@ async function scanFolder(rootPath, options = {}) {
 
       const entryPath = path.join(currentPath, entry.name)
 
+      // Skip Windows junction points / symbolic links to prevent infinite traversal loops
+      if (entry.isSymbolicLink()) continue
+
       try {
         if (entry.isDirectory()) {
           ensureFolder(folders, entryPath, currentPath, entry.name)
