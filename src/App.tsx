@@ -883,7 +883,57 @@ function FolderTiles({ folders, onFolderOpen, onTrashFolder }: { folders: Folder
 
 function Duplicates({ groups, onQueue }: { groups: DuplicateGroup[]; onQueue: (file: FileSummary) => void }) {
   if (!groups || groups.length === 0) return <p className="note">No duplicate scan results yet. Click Find duplicates or run Full scan.</p>
-  return <div className="duplicate-list">{groups.map((group) => <article className="duplicate-group" key={group.hash}><h3>{(group.files || []).length} copies · {formatBytes(group.size || 0)} each</h3><p className="note">Suggestion: keep one copy and queue extras only after checking them.</p><FilesTable files={group.files || []} onQueue={onQueue} /></article>)}</div>
+
+  const totalReclaimable = groups.reduce((sum, g) => sum + (g.size || 0) * Math.max(0, (g.files || []).length - 1), 0)
+
+  const queueAllExtras = () => {
+    groups.forEach((group) => {
+      // Keep the first copy, queue the rest (extras)
+      const extras = (group.files || []).slice(1)
+      extras.forEach((file) => onQueue(file))
+    })
+  }
+
+  const queueGroupExtras = (group: DuplicateGroup) => {
+    const extras = (group.files || []).slice(1)
+    extras.forEach((file) => onQueue(file))
+  }
+
+  return (
+    <div className="duplicate-container">
+      <div className="queue-summary">
+        <div>
+          <strong>{groups.length} duplicate group(s)</strong>
+          <span style={{ display: 'block', color: '#64748b', fontSize: '0.88rem' }}>
+            Reclaimable space: {formatBytes(totalReclaimable)} (keeps 1 original copy per group)
+          </span>
+        </div>
+        <button className="primary-button" onClick={queueAllExtras}>
+          Queue all extra copies ({formatBytes(totalReclaimable)})
+        </button>
+      </div>
+
+      <div className="duplicate-list">
+        {groups.map((group) => {
+          const groupReclaimable = (group.size || 0) * Math.max(0, (group.files || []).length - 1)
+          return (
+            <article className="duplicate-group" key={group.hash}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div>
+                  <h3 style={{ margin: 0 }}>{(group.files || []).length} copies · {formatBytes(group.size || 0)} each</h3>
+                  <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Reclaimable: {formatBytes(groupReclaimable)}</span>
+                </div>
+                <button className="small-button" onClick={() => queueGroupExtras(group)}>
+                  Queue extra copies
+                </button>
+              </div>
+              <FilesTable files={group.files || []} onQueue={onQueue} />
+            </article>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
 
 function CleanupPanel({
