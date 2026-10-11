@@ -119,6 +119,7 @@ if (app) {
 
   ipcMain.handle('scan-folder', async (_event, folderPath) => {
     activeScan = { cancelled: false }
+    addAllowedRoot(folderPath)
 
     try {
       return await scanFolder(folderPath, {
@@ -192,11 +193,28 @@ function isProtectedSystemPath(targetPath) {
   return protectedRoots.some((root) => norm === root || norm.startsWith(root + '\\'))
 }
 
-function isAllowedImagePath(filePath) {
+const allowedRoots = new Set()
+
+function addAllowedRoot(rootPath) {
+  if (!rootPath) return
+  allowedRoots.add(path.normalize(path.resolve(rootPath)).toLowerCase())
+}
+
+function isAllowedImagePath(filePath, permittedRoots = allowedRoots) {
   if (!filePath) return false
-  const ext = path.extname(filePath).toLowerCase()
+  const normalized = path.normalize(path.resolve(filePath)).toLowerCase()
+  const ext = path.extname(normalized).toLowerCase()
   if (!imageExtensions.has(ext)) return false
-  if (isProtectedSystemPath(filePath)) return false
+  if (isProtectedSystemPath(normalized)) return false
+
+  // If explicit permitted roots are configured, require the file to reside inside one of them
+  if (permittedRoots && permittedRoots.size > 0) {
+    const isInside = Array.from(permittedRoots).some(
+      (root) => normalized === root || normalized.startsWith(root + path.sep)
+    )
+    if (!isInside) return false
+  }
+
   return true
 }
 
@@ -567,4 +585,5 @@ module.exports = {
   moveToTrash,
   isProtectedSystemPath,
   isAllowedImagePath,
+  addAllowedRoot,
 }

@@ -1,5 +1,6 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useMemo, useState } from 'react'
 import { generateCsvReport, generateJsonReport } from './reportUtils'
+import { compareSnapshots } from './analysisUtils'
 
 type Tab = 'browse' | 'files' | 'types' | 'duplicates' | 'treemap' | 'compare' | 'cleanup' | 'jobs' | 'errors'
 type ViewMode = 'list' | 'tiles'
@@ -321,8 +322,11 @@ function App() {
       const a = document.createElement('a')
       a.href = url
       a.download = filename
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      document.body.removeChild(a)
+      // Delay revoking URL so Electron/Chromium download manager can initialize the transfer stream reliably
+      setTimeout(() => URL.revokeObjectURL(url), 2000)
       setMessage(`Exported ${full ? 'full' : 'summary'} report as ${format.toUpperCase()}.`)
     } catch (err) {
       console.error('Export failed:', err)
@@ -1219,17 +1223,15 @@ function ComparePanel({
   const baseline = history.find((h) => h.id === baselineId) || history[1] || history[0]
   const target = history.find((h) => h.id === targetId) || history[0]
 
+  const comparison = useMemo(() => {
+    return compareSnapshots(baseline, target)
+  }, [baseline, target])
+
   if (history.length < 2) {
     return <p className="note">Need at least 2 historical scans to compare changes over time. Perform another scan to see comparisons.</p>
   }
 
-  const baseSize = baseline?.totals?.size || 0
-  const targetSize = target?.totals?.size || 0
-  const sizeDiff = targetSize - baseSize
-
-  const baseFiles = baseline?.totals?.files || 0
-  const targetFiles = target?.totals?.files || 0
-  const filesDiff = targetFiles - baseFiles
+  const { sizeDiff, filesDiff, isSameRoot, pctChange, growthState } = comparison
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -1259,11 +1261,17 @@ function ComparePanel({
         </div>
       </div>
 
+      {!isSameRoot && (
+        <p className="note" style={{ color: '#b45309', background: '#fef3c7', padding: '8px 12px', borderRadius: '8px', margin: 0 }}>
+          ⚠️ Notice: You are comparing two different root folders ("{baseline?.rootPath}" vs "{target?.rootPath}"). Metrics indicate relative difference between distinct paths.
+        </p>
+      )}
+
       <div className="stats-grid">
         <div className="stat-card">
           <span>Net Space Change</span>
-          <strong style={{ color: sizeDiff > 0 ? '#dc2626' : sizeDiff < 0 ? '#16a34a' : '#1e293b' }}>
-            {sizeDiff > 0 ? `+${formatBytes(sizeDiff)} (Grown)` : sizeDiff < 0 ? `-${formatBytes(Math.abs(sizeDiff))} (Freed)` : '0 B (No Change)'}
+          <strong style={{ color: growthState === 'grown' ? '#dc2626' : growthState === 'freed' ? '#16a34a' : '#1e293b' }}>
+            {sizeDiff > 0 ? `+${formatBytes(sizeDiff)} (+${pctChange.toFixed(1)}%)` : sizeDiff < 0 ? `-${formatBytes(Math.abs(sizeDiff))} (${pctChange.toFixed(1)}%)` : '0 B (No Change)'}
           </strong>
         </div>
 
@@ -1275,13 +1283,13 @@ function ComparePanel({
         </div>
 
         <div className="stat-card">
-          <span>Baseline Details</span>
-          <strong>{formatBytes(baseSize)} · {baseFiles.toLocaleString()} files</strong>
+          <span>Baseline ({baseline?.scannedAt ? new Date(baseline.scannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Earlier'})</span>
+          <strong>{formatBytes(baseline?.totals?.size || 0)} · {(baseline?.totals?.files || 0).toLocaleString()} files</strong>
         </div>
 
         <div className="stat-card">
-          <span>Target Details</span>
-          <strong>{formatBytes(targetSize)} · {targetFiles.toLocaleString()} files</strong>
+          <span>Target ({target?.scannedAt ? new Date(target.scannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Later'})</span>
+          <strong>{formatBytes(target?.totals?.size || 0)} · {(target?.totals?.files || 0).toLocaleString()} files</strong>
         </div>
       </div>
     </div>

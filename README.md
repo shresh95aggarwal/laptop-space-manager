@@ -1,59 +1,91 @@
 # Laptop Space Manager
 
-A Windows desktop app for understanding what is filling your laptop storage.
+A hardened, zero-data-loss Windows desktop disk space manager designed to inspect storage, detect duplicates, and safely reclaim space.
 
-This version includes:
+Built with **React**, **TypeScript**, **Vite**, and **Electron**.
 
-- **Per-Item Queue Removal & Reset**: Each queued file in the Cleanup tab has a **"Remove from queue"** button, plus a **"Reset / Clear queue"** button to instantly clear the entire queue at once.
-- **Interactive Path Breadcrumbs**: Replaced the "Up" button with clickable path segments (`📂 Projects / laptop-space-manager / src / assets`). Clicking any parent folder segment directly opens that folder in the app!
-- **Folder "Show" Action**: Added a **Show** button to folders in table and tile views to reveal/open the folder directly in Windows File Explorer.
-- **Common Search Across Folders & Files**: The main search bar searches both subfolder names AND file names live inside the folder browser, with a real-time matching count banner (`Found X folder(s) and Y file(s) matching "..."`).
-- **Instant Delete List Refresh**: Deleting a file or folder immediately updates and refreshes the scan result state in real time without needing a full manual re-scan.
-- **Full Scan Mode**: Added **`🔥 Full scan`** button alongside **`⚡ Fast scan`**. Full scan computes file sizes, empty folders, AND runs duplicate content-hashing in one single sequence.
-- **Streamlined Selection Workflow**: Choose one or multiple folders via a single clean `"Select folder(s)"` interface.
-- Folder-first browser with **Delete Folder** action (moves to Windows Recycle Bin)
-- Empty folder detection with an **Empty Badge** and one-click cleanup
-- Skipped / Error path reporting for permission-restricted folders
-- Switch between list view and tile view
-- Real-time scan progress display and **Cancel Scan** button
-- Multi-location scan job queue
-- Search and filter file results by name, type category, and minimum size
-- Guided cleanup suggestions (large videos, old large files, installers, archives)
-- Safe Cleanup Queue with confirmation before moving files to the Windows Recycle Bin
+---
 
-## Tech stack
+## Key Features
 
-- React
-- TypeScript
-- Vite
-- Electron
+### 🛡️ Safety & Zero-Data-Loss Core
+- **Recycle Bin Exclusivity**: Deletions strictly route through Windows Recycle Bin (`shell.trashItem`). No destructive `fs.rm()` fallbacks are ever used; targets are preserved intact if trashing fails.
+- **Dual-Layer System Guard**: Both Electron main process and React UI protect Windows system roots (`C:\Windows`, `Program Files`, `ProgramData`, and root drives like `C:\`, `D:\`) against accidental deletion.
+- **Junction & Symlink Traversal Protection**: Directory traversal automatically skips symlinks and junction points to prevent infinite recursive scan loops.
 
-## Run locally
+### 📊 Storage Analytics & True Proportional Treemap
+- **Proportional Area Treemap**: A binary squarified slice-and-dice layout where block areas strictly represent actual byte consumption. Click any folder block to drill down directly.
+- **Drive Overview Dashboard**: Displays active drive capacity, used bytes, and free storage bar via native filesystem metrics.
+- **Sortable File & Folder Tables**: Interactive sort headers (Name, Type, Size, File Count, Modified Date) with direction indicators.
+- **Multi-Select Bulk Queueing**: Row checkboxes with select-all, floating summary bar (`Selected X files, Y MB`), and one-click bulk queueing.
 
+### 🕒 Persistent History & Historical Scan Comparisons
+- **Timestamped Snapshots**: Automatically stores up to 10 historical scans with unique snapshot UUIDs and timestamps in persistent storage.
+- **Visual Scan Comparison (`Compare Scans`)**: Select any two past scans (baseline vs. target) to evaluate:
+  - Net space change (`+Grown` or `-Freed` with percentage change)
+  - Net file count change
+  - Root directory mismatch warnings when comparing distinct folders
+  - Safe handling of legacy snapshots and corrupted data
+
+### 🔍 Memory-Safe Streaming Duplicate Detection
+- **Chunked SHA-256 Hashing**: Streams files chunk-by-chunk to prevent high RAM consumption on multi-gigabyte files.
+- **Duplicate Cleanup Controls**: Total reclaimable space calculator and one-click extra-copy queueing (guarantees 1 original copy remains safe).
+- **End-to-End Cancellation**: Halts traversal and hashing immediately when cancelled without swallowing errors in nested calls.
+
+### 📁 Comprehensive CSV & JSON Reports
+- **Full & Top CSV Exports**: Export all scanned files without limits or export the top largest files. Built with RFC-4180 escaping for commas, quotes, and newlines.
+- **Full & Summary JSON Exports**: Exports either full file trees or concise summary reports (totals, top folders, top files).
+- **Reliable Download Lifecycle**: Appends download links and defers `URL.revokeObjectURL()` to allow the Electron/Chromium download manager to complete file streams reliably.
+
+### 🖼️ Secure Image Tile Previews
+- **Scoped `atom://` Protocol**: Custom file protocol serving local thumbnails for image formats (`.png`, `.jpg`, `.jpeg`, `.webp`, `.gif`, `.bmp`, `.svg`).
+- **Filesystem Security**: Restricts access to permitted scan directories, blocks path traversal (`..`), and rejects protected Windows system directories.
+- **Resilient Fallback**: Image load failures cleanly switch to file type icons rather than broken boxes.
+
+---
+
+## Tech Stack
+
+- **Frontend**: React 18, TypeScript, Vite
+- **Desktop Harness**: Electron, Node.js IPC
+- **Build & Packaging**: `electron-builder` (NSIS Windows Installer)
+- **Testing**: Built-in `node --test` suite
+
+---
+
+## Getting Started
+
+### Development
 ```powershell
-cd C:\Users\shresh\Projects\laptop-space-manager
+cd laptop-space-manager
 npm install
 npm run dev
 ```
 
-If `npm` is not found, add Node.js and Git to the current terminal PATH:
-
+If Node.js and Git are not in your path:
 ```powershell
 $env:Path = "C:\Program Files\nodejs;C:\Program Files\Git\cmd;" + $env:Path
 ```
 
-## Build check
+### Run Tests
+```powershell
+npm test
+```
+Runs the 13 automated unit and integration tests covering trashing safety, streaming duplicates, scan cancellation, empty folders, system protection, symlinks, CSV/JSON serialization, snapshot comparison, treemap layout, and image security.
 
+### Build Production Bundle
 ```powershell
 npm run build
 ```
 
-## Safe usage tips
+### Build Windows Installer (.exe)
+```powershell
+npm run dist
+```
+Uses `electron-builder` to bundle the app and build a standalone NSIS Windows installer.
 
-- Start by scanning personal folders like Downloads, Desktop, Documents, Pictures, or Videos.
-- Deleting files or folders moves them to the Windows Recycle Bin for safety.
-- Duplicate detection compares file content hashes and runs separately on demand or during Full Scan.
+---
 
-## Project documentation
+## Documentation
 
-See [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md) for the product plan, safety principles, performance direction, and future roadmap.
+- [`docs/PROJECT_PLAN.md`](docs/PROJECT_PLAN.md): Architecture, safety guarantees, performance guidelines, and product roadmap.

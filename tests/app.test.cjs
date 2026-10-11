@@ -3,8 +3,9 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
-const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath, isAllowedImagePath } = require('../electron/main.cjs')
+const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath, isAllowedImagePath, addAllowedRoot } = require('../electron/main.cjs')
 const { generateCsvReport, generateJsonReport, parseCsv, escapeCsvField } = require('../src/reportUtils.cjs')
+const { compareSnapshots, computeTreemapLayout } = require('../src/analysisUtils.cjs')
 
 test('Laptop Space Manager - Backend Test Suite', async (t) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lsm-test-'))
@@ -272,17 +273,45 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
       scannedAt: '2026-01-02T10:00:00.000Z',
       totals: { size: 1500000, files: 60 },
     }
+    const scan3 = {
+      rootPath: 'C:\\Projects',
+      scannedAt: '2026-01-03T10:00:00.000Z',
+      totals: { size: 800000, files: 40 },
+    }
+    const diffScanRoot = {
+      rootPath: 'D:\\Media',
+      scannedAt: '2026-01-03T11:00:00.000Z',
+      totals: { size: 800000, files: 40 },
+    }
 
-    const history = [scan2, scan1] // Retains both snapshots for the same root
-    assert.equal(history.length, 2)
-    assert.equal(history[0].rootPath, history[1].rootPath)
-    assert.notEqual(history[0].scannedAt, history[1].scannedAt)
+    // 9a. Growing scan
+    const cmpGrown = compareSnapshots(scan1, scan2)
+    assert.equal(cmpGrown.isSameRoot, true)
+    assert.equal(cmpGrown.sizeDiff, 500000)
+    assert.equal(cmpGrown.filesDiff, 10)
+    assert.equal(cmpGrown.growthState, 'grown')
+    assert.equal(cmpGrown.pctChange, 50)
 
-    const sizeDelta = (history[0].totals.size || 0) - (history[1].totals.size || 0)
-    const filesDelta = (history[0].totals.files || 0) - (history[1].totals.files || 0)
+    // 9b. Freeing space (negative change)
+    const cmpFreed = compareSnapshots(scan2, scan3)
+    assert.equal(cmpFreed.sizeDiff, -700000)
+    assert.equal(cmpFreed.filesDiff, -20)
+    assert.equal(cmpFreed.growthState, 'freed')
 
-    assert.equal(sizeDelta, 500000, 'Calculates positive space growth correctly (+500 KB)')
-    assert.equal(filesDelta, 10, 'Calculates file addition count correctly (+10 files)')
+    // 9c. Equal scans (no change)
+    const cmpEqual = compareSnapshots(scan1, scan1)
+    assert.equal(cmpEqual.sizeDiff, 0)
+    assert.equal(cmpEqual.filesDiff, 0)
+    assert.equal(cmpEqual.growthState, 'unchanged')
+
+    // 9d. Different scan roots flagged
+    const cmpDiffRoots = compareSnapshots(scan1, diffScanRoot)
+    assert.equal(cmpDiffRoots.isSameRoot, false, 'Should flag comparisons across differing root directories')
+
+    // 9e. Backward compatibility: snapshots without IDs or missing totals do not throw
+    const oldSnapshotWithoutId = { rootPath: 'C:\\Old' }
+    const cmpOld = compareSnapshots(oldSnapshotWithoutId, scan1)
+    assert.equal(cmpOld.growthState, 'grown')
   })
 
   await t.test('10. JSON report generation produces parseable output with summary option', () => {
@@ -307,12 +336,47 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
   })
 
   await t.test('11. Security validation for atom:// image protocol denies unauthorized/executable paths', () => {
+    // Unrestricted / default root set
     assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\photo.png'), true)
     assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\photo with spaces.jpeg'), true)
     assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\emoji_📷.webp'), true)
     // Disallowed: executables, scripts, protected system paths
     assert.equal(isAllowedImagePath('C:\\Users\\user\\Downloads\\installer.exe'), false)
-    assert.equal(isAllowedImagePath('C:\\Windows\\System32\\cmd.exe'), false)
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\System32\\cmd.exe'), false)
     assert.equal(isAllowedImagePath('C:\\Windows\\Web\\Wallpaper\\img.jpg'), false, 'Protected system directories must be blocked')
+
+    // Scoped root testing: only allow files inside permitted scan roots
+    const permittedRoots = new Set(['c:\\users\\user\\pictures'])
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\vacation.jpg', permittedRoots), true)
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Documents\\secret.jpg', permittedRoots), false, 'Image outside permitted root must be denied')
+
+    // Path traversal attacks (e.g. attempting to break out of root via ..)
+    const traversalAttempt = 'C:\\Users\\user\\Pictures\\..\\Documents\\leak.png'
+    assert.equal(isAllowedImagePath(traversalAttempt, permittedRoots), false, 'Path traversal must be neutralized by normalization and denied')
+  })
+
+  await t.test('12. Proportional Treemap calculation handles zero-sized, uneven, and empty folders', () => {
+    // 12a. Proportional area test: Folder A is twice as large as Folder B
+    const items = [
+      { path: 'C:\\A', name: 'A', size: 200 },
+      { path: 'C:\\B', name: 'B', size: 100 },
+    ]
+    const layout = computeTreemapLayout(items, 300, 0, 0, 100, 100)
+    assert.equal(layout.length, 2)
+    const areaA = layout[0].w * layout[0].h
+    const areaB = layout[1].w * layout[1].h
+    assert.ok(Math.abs(areaA / areaB - 2.0) < 0.05, 'Item A area should be ~2x Item B area')
+
+    // 12b. Zero-sized folders do not crash and produce safe layout
+    const zeroItems = [
+      { path: 'C:\\Zero1', name: 'Zero1', size: 0 },
+      { path: 'C:\\Zero2', name: 'Zero2', size: 0 },
+    ]
+    const zeroLayout = computeTreemapLayout(zeroItems, 0)
+    assert.equal(zeroLayout.length, 2)
+    assert.equal(zeroLayout[0].areaPct, 0)
+
+    // 12c. Empty list returns empty nodes
+    assert.deepEqual(computeTreemapLayout([], 0), [])
   })
 })
