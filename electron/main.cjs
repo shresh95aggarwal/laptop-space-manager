@@ -40,9 +40,9 @@ if (app) {
           const decoded = decodeURI(url)
           const normalized = path.normalize(path.resolve(decoded))
 
-          // Scope check: do not serve sensitive windows directories
-          if (isProtectedSystemPath(normalized)) {
-            return callback({ error: -6 }) // FILE_NOT_FOUND / ACCESS_DENIED
+          // Security validation: verify allowed image file extension and block system paths
+          if (!isAllowedImagePath(normalized)) {
+            return callback({ error: -6 }) // ACCESS_DENIED
           }
 
           callback({ path: normalized })
@@ -172,6 +172,8 @@ if (app) {
  * Checks if a path is a critical system directory or drive root
  * that should be protected from deletion or scanned with a warning.
  */
+const imageExtensions = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.svg'])
+
 function isProtectedSystemPath(targetPath) {
   if (!targetPath) return false
   const trimmed = targetPath.trim()
@@ -188,6 +190,14 @@ function isProtectedSystemPath(targetPath) {
   const protectedRoots = [winDir, progFiles, progFilesX86, progData]
 
   return protectedRoots.some((root) => norm === root || norm.startsWith(root + '\\'))
+}
+
+function isAllowedImagePath(filePath) {
+  if (!filePath) return false
+  const ext = path.extname(filePath).toLowerCase()
+  if (!imageExtensions.has(ext)) return false
+  if (isProtectedSystemPath(filePath)) return false
+  return true
 }
 
 /**
@@ -556,4 +566,5 @@ module.exports = {
   hashFile,
   moveToTrash,
   isProtectedSystemPath,
+  isAllowedImagePath,
 }

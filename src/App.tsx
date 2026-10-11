@@ -1,6 +1,7 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useMemo, useState } from 'react'
+import { generateCsvReport, generateJsonReport } from './reportUtils'
 
-type Tab = 'browse' | 'files' | 'types' | 'duplicates' | 'treemap' | 'cleanup' | 'jobs' | 'errors'
+type Tab = 'browse' | 'files' | 'types' | 'duplicates' | 'treemap' | 'compare' | 'cleanup' | 'jobs' | 'errors'
 type ViewMode = 'list' | 'tiles'
 type ScanJob = {
   id: string
@@ -76,11 +77,15 @@ function App() {
   const [scanHistory, setScanHistory] = useState<ScanResult[]>(() => {
     try {
       const saved = localStorage.getItem('lsm_scan_history')
-      return saved ? JSON.parse(saved) : []
+      if (!saved) return []
+      const parsed = JSON.parse(saved)
+      return Array.isArray(parsed) ? parsed : []
     } catch {
       return []
     }
   })
+  const [compareBaselineId, setCompareBaselineId] = useState<string>('')
+  const [compareTargetId, setCompareTargetId] = useState<string>('')
   const [message, setMessage] = useState('Select one or more folders to begin scanning.')
 
   useEffect(() => {
@@ -156,16 +161,17 @@ function App() {
 
   function saveToHistory(newResult: ScanResult) {
     setScanHistory((prev) => {
-      // Keep historical snapshots per scan with timestamp
+      // Keep historical snapshots per scan with unique snapshot ID & timestamp
       const snapshot: ScanResult = {
         ...newResult,
+        id: crypto.randomUUID(),
         scannedAt: newResult.scannedAt || new Date().toISOString(),
       }
       const updated = [snapshot, ...prev].slice(0, 10) // Keep last 10 snapshots
       try {
         localStorage.setItem('lsm_scan_history', JSON.stringify(updated))
-      } catch {
-        // quota safety
+      } catch (e) {
+        console.warn('Storage quota exceeded for scan history:', e)
       }
       return updated
     })
@@ -302,21 +308,11 @@ function App() {
       let filename: string
 
       if (format === 'json') {
-        const dataStr = JSON.stringify(result, null, 2)
-        blob = new Blob([dataStr], { type: 'application/json' })
-        filename = `space-scan-report-${Date.now()}.json`
+        const jsonContent = generateJsonReport(result, { full })
+        blob = new Blob([jsonContent], { type: 'application/json' })
+        filename = `space-scan-report-${full ? 'full' : 'summary'}-${Date.now()}.json`
       } else {
-        const filesToExport = full && result.files && result.files.length > 0 ? result.files : (result.largestFiles || [])
-        const escapeCsv = (val: unknown) => `"${String(val ?? '').replace(/"/g, '""')}"`
-        const header = ['Path', 'Name', 'Size (Bytes)', 'Extension', 'Modified At'].map(escapeCsv).join(',')
-        const rows = filesToExport.map((f) => [
-          escapeCsv(f.path),
-          escapeCsv(f.name),
-          escapeCsv(f.size ?? 0),
-          escapeCsv(f.extension ?? ''),
-          escapeCsv(f.modifiedAt ?? ''),
-        ].join(','))
-        const csvContent = [header, ...rows].join('\r\n')
+        const csvContent = generateCsvReport(result, { full })
         blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
         filename = `space-scan-report-${full ? 'full' : 'top'}-${Date.now()}.csv`
       }
@@ -568,21 +564,37 @@ function App() {
 
         {selectedLocations.length === 0 && scanHistory.length > 0 && !result && (
           <section className="stat-card" style={{ marginTop: '16px', background: '#f8fafc' }}>
-            <strong style={{ display: 'block', marginBottom: '8px' }}>Recent Scans:</strong>
-            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-              {scanHistory.map((hist) => (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <strong>Recent Scans & Historical Snapshots ({scanHistory.length}):</strong>
+              {scanHistory.length >= 2 && (
                 <button
-                  key={hist.rootPath}
+                  className="small-button"
+                  onClick={() => {
+                    setCompareBaselineId(scanHistory[1].id || '')
+                    setCompareTargetId(scanHistory[0].id || '')
+                    setResult(scanHistory[0])
+                    setCurrentFolder(scanHistory[0].rootPath)
+                    setActiveTab('compare')
+                  }}
+                >
+                  📊 Compare Last 2 Scans
+                </button>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+              {scanHistory.map((hist, index) => (
+                <button
+                  key={hist.id || `${hist.rootPath}-${hist.scannedAt || index}`}
                   className="small-button"
                   onClick={() => {
                     setResult(hist)
                     setCurrentFolder(hist.rootPath)
                     setActiveTab('browse')
-                    setMessage(`Loaded scan report for "${hist.rootPath}" from history.`)
+                    setMessage(`Loaded scan report for "${hist.rootPath}" taken at ${hist.scannedAt ? new Date(hist.scannedAt).toLocaleTimeString() : 'earlier'}.`)
                   }}
-                  title={`Scanned ${formatBytes(hist.totals?.size || 0)}`}
+                  title={`Scanned at: ${hist.scannedAt || 'Unknown'}\nSize: ${formatBytes(hist.totals?.size || 0)}`}
                 >
-                  🕒 {hist.rootPath} ({formatBytes(hist.totals?.size || 0)})
+                  🕒 {hist.rootPath} ({formatBytes(hist.totals?.size || 0)}) · {hist.scannedAt ? new Date(hist.scannedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : `#${index + 1}`}
                 </button>
               ))}
             </div>
@@ -618,6 +630,7 @@ function App() {
                   <TabButton active={activeTab === 'types'} onClick={() => setActiveTab('types')}>File types</TabButton>
                   <TabButton active={activeTab === 'duplicates'} onClick={() => setActiveTab('duplicates')}>Duplicates ({duplicateFiles.length})</TabButton>
                   <TabButton active={activeTab === 'treemap'} onClick={() => setActiveTab('treemap')}>Visual Treemap</TabButton>
+                  <TabButton active={activeTab === 'compare'} onClick={() => setActiveTab('compare')}>Compare Scans</TabButton>
                   <TabButton active={activeTab === 'cleanup'} onClick={() => setActiveTab('cleanup')}>Cleanup ({cleanupQueue.length})</TabButton>
                   <TabButton active={activeTab === 'errors'} onClick={() => setActiveTab('errors')}>Errors / Skipped ({(result.errors || []).length})</TabButton>
                   <TabButton active={activeTab === 'jobs'} onClick={() => setActiveTab('jobs')}>Jobs ({scanJobs.length})</TabButton>
@@ -649,6 +662,15 @@ function App() {
                     setActiveTab('browse')
                   }}
                   onQueue={addToCleanupQueue}
+                />
+              )}
+              {activeTab === 'compare' && (
+                <ComparePanel
+                  history={scanHistory}
+                  baselineId={compareBaselineId}
+                  targetId={compareTargetId}
+                  onSelectBaseline={setCompareBaselineId}
+                  onSelectTarget={setCompareTargetId}
                 />
               )}
               {activeTab === 'cleanup' && (
@@ -1181,6 +1203,91 @@ function layoutTreemap(
   }
 }
 
+function ComparePanel({
+  history,
+  baselineId,
+  targetId,
+  onSelectBaseline,
+  onSelectTarget,
+}: {
+  history: ScanResult[]
+  baselineId: string
+  targetId: string
+  onSelectBaseline: (id: string) => void
+  onSelectTarget: (id: string) => void
+}) {
+  const baseline = history.find((h) => h.id === baselineId) || history[1] || history[0]
+  const target = history.find((h) => h.id === targetId) || history[0]
+
+  if (history.length < 2) {
+    return <p className="note">Need at least 2 historical scans to compare changes over time. Perform another scan to see comparisons.</p>
+  }
+
+  const baseSize = baseline?.totals?.size || 0
+  const targetSize = target?.totals?.size || 0
+  const sizeDiff = targetSize - baseSize
+
+  const baseFiles = baseline?.totals?.files || 0
+  const targetFiles = target?.totals?.files || 0
+  const filesDiff = targetFiles - baseFiles
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+        <div>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Earlier Baseline Scan:</label>
+          <select value={baseline?.id || ''} onChange={(e) => onSelectBaseline(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+            {history.map((h) => (
+              <option key={h.id || h.scannedAt} value={h.id}>
+                {h.rootPath} · {h.scannedAt ? new Date(h.scannedAt).toLocaleString() : 'Snapshot'} ({formatBytes(h.totals?.size || 0)})
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div style={{ fontSize: '1.2rem', color: '#94a3b8', paddingTop: '18px' }}>➔</div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: '#475569', marginBottom: '4px' }}>Later Target Scan:</label>
+          <select value={target?.id || ''} onChange={(e) => onSelectTarget(e.target.value)} style={{ padding: '8px 12px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+            {history.map((h) => (
+              <option key={h.id || h.scannedAt} value={h.id}>
+                {h.rootPath} · {h.scannedAt ? new Date(h.scannedAt).toLocaleString() : 'Snapshot'} ({formatBytes(h.totals?.size || 0)})
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="stats-grid">
+        <div className="stat-card">
+          <span>Net Space Change</span>
+          <strong style={{ color: sizeDiff > 0 ? '#dc2626' : sizeDiff < 0 ? '#16a34a' : '#1e293b' }}>
+            {sizeDiff > 0 ? `+${formatBytes(sizeDiff)} (Grown)` : sizeDiff < 0 ? `-${formatBytes(Math.abs(sizeDiff))} (Freed)` : '0 B (No Change)'}
+          </strong>
+        </div>
+
+        <div className="stat-card">
+          <span>Files Change</span>
+          <strong style={{ color: filesDiff > 0 ? '#dc2626' : filesDiff < 0 ? '#16a34a' : '#1e293b' }}>
+            {filesDiff > 0 ? `+${filesDiff.toLocaleString()} files` : filesDiff < 0 ? `${filesDiff.toLocaleString()} files` : 'No file count change'}
+          </strong>
+        </div>
+
+        <div className="stat-card">
+          <span>Baseline Details</span>
+          <strong>{formatBytes(baseSize)} · {baseFiles.toLocaleString()} files</strong>
+        </div>
+
+        <div className="stat-card">
+          <span>Target Details</span>
+          <strong>{formatBytes(targetSize)} · {targetFiles.toLocaleString()} files</strong>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function TreemapView({
   folders,
   totalSize,
@@ -1199,19 +1306,25 @@ function TreemapView({
       .slice(0, 24)
   }, [folders])
 
+  const topFoldersTotal = useMemo(() => {
+    return topFolders.reduce((sum, f) => sum + (f.size || 0), 0)
+  }, [topFolders])
+
   const rects = useMemo(() => {
-    return layoutTreemap(topFolders, totalSize, 0, 0, 100, 100)
-  }, [topFolders, totalSize])
+    return layoutTreemap(topFolders, topFoldersTotal, 0, 0, 100, 100)
+  }, [topFolders, topFoldersTotal])
 
   if (topFolders.length === 0) {
     return <p className="note">No folder usage details available to render treemap.</p>
   }
 
+  const coveragePct = Math.round((topFoldersTotal / (totalSize || 1)) * 100)
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <p className="note" style={{ margin: 0 }}>
-          Proportional area treemap: Each block area reflects actual storage consumption. Click to drill in.
+          Proportional area treemap: Displaying top {topFolders.length} folders ({formatBytes(topFoldersTotal)}, {coveragePct}% of total scanned space). Click to drill into that folder.
         </p>
       </div>
 

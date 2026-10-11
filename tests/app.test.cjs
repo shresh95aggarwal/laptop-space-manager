@@ -3,8 +3,8 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
-const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath } = require('../electron/main.cjs')
-const { generateCsvReport, parseCsv, escapeCsvField } = require('../src/reportUtils.cjs')
+const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath, isAllowedImagePath } = require('../electron/main.cjs')
+const { generateCsvReport, generateJsonReport, parseCsv, escapeCsvField } = require('../src/reportUtils.cjs')
 
 test('Laptop Space Manager - Backend Test Suite', async (t) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lsm-test-'))
@@ -283,5 +283,36 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
 
     assert.equal(sizeDelta, 500000, 'Calculates positive space growth correctly (+500 KB)')
     assert.equal(filesDelta, 10, 'Calculates file addition count correctly (+10 files)')
+  })
+
+  await t.test('10. JSON report generation produces parseable output with summary option', () => {
+    const mockResult = {
+      rootPath: 'C:\\TestScan',
+      scannedAt: '2026-03-01T12:00:00.000Z',
+      totals: { size: 4096, files: 2 },
+      files: [{ path: 'C:\\TestScan\\a.txt', name: 'a.txt', size: 2048 }],
+      largestFiles: [{ path: 'C:\\TestScan\\a.txt', name: 'a.txt', size: 2048 }],
+    }
+
+    const fullJson = generateJsonReport(mockResult, { full: true })
+    const parsedFull = JSON.parse(fullJson)
+    assert.equal(parsedFull.rootPath, 'C:\\TestScan')
+    assert.equal(parsedFull.files.length, 1)
+
+    const summaryJson = generateJsonReport(mockResult, { full: false })
+    const parsedSummary = JSON.parse(summaryJson)
+    assert.equal(parsedSummary.rootPath, 'C:\\TestScan')
+    assert.equal(parsedSummary.topFiles.length, 1)
+    assert.equal(parsedSummary.files, undefined, 'Summary report should omit the raw full file list')
+  })
+
+  await t.test('11. Security validation for atom:// image protocol denies unauthorized/executable paths', () => {
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\photo.png'), true)
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\photo with spaces.jpeg'), true)
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Pictures\\emoji_📷.webp'), true)
+    // Disallowed: executables, scripts, protected system paths
+    assert.equal(isAllowedImagePath('C:\\Users\\user\\Downloads\\installer.exe'), false)
+    assert.equal(isAllowedImagePath('C:\\Windows\\System32\\cmd.exe'), false)
+    assert.equal(isAllowedImagePath('C:\\Windows\\Web\\Wallpaper\\img.jpg'), false, 'Protected system directories must be blocked')
   })
 })

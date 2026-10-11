@@ -5,7 +5,6 @@
 function escapeCsvField(val) {
   if (val === null || val === undefined) return '""'
   const str = String(val)
-  // Double-quote any existing double quotes, wrap in quotes
   return `"${str.replace(/"/g, '""')}"`
 }
 
@@ -31,6 +30,21 @@ function generateCsvReport(scanResult, options = { full: true }) {
   }
 
   return rows.join('\r\n')
+}
+
+function generateJsonReport(scanResult, options = { full: true }) {
+  if (!scanResult) return '{}'
+  if (!options.full) {
+    const summary = {
+      rootPath: scanResult.rootPath,
+      scannedAt: scanResult.scannedAt,
+      totals: scanResult.totals,
+      topFiles: scanResult.largestFiles || [],
+      topFolders: scanResult.largestFolders || [],
+    }
+    return JSON.stringify(summary, null, 2)
+  }
+  return JSON.stringify(scanResult, null, 2)
 }
 
 function parseCsv(csvText) {
@@ -79,5 +93,6 @@ function parseCsv(csvText) {
 module.exports = {
   escapeCsvField,
   generateCsvReport,
+  generateJsonReport,
   parseCsv,
 }

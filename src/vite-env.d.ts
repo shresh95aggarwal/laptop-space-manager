@@ -30,6 +30,7 @@ type DuplicateGroup = {
 }
 
 type ScanResult = {
+  id?: string
   rootPath: string
   scannedAt: string
   durationMs: number
