@@ -395,17 +395,36 @@ function App() {
     })
   }
 
+  function isSystemPath(p: string): boolean {
+    if (!p) return false
+    const norm = p.trim().toLowerCase().replace(/[\\/]+$/, '')
+    if (/^[a-z]:[\\/]*$/.test(norm)) return true
+    const protectedStarts = ['c:\\windows', 'c:\\program files', 'c:\\program files (x86)', 'c:\\programdata']
+    return protectedStarts.some((root) => norm === root || norm.startsWith(root + '\\'))
+  }
+
   async function moveQueuedFilesToTrash() {
     if (cleanupQueue.length === 0) return
-    const totalSize = cleanupQueue.reduce((sum, file) => sum + (file.size || 0), 0)
-    const confirmed = window.confirm(`Move ${cleanupQueue.length} file(s), ${formatBytes(totalSize)}, to the Recycle Bin?`)
+    const protectedInQueue = cleanupQueue.filter((f) => isSystemPath(f.path))
+    if (protectedInQueue.length > 0) {
+      alert(`Safety Alert: ${protectedInQueue.length} file(s) in your queue are located in protected system paths and will be skipped.`)
+    }
+
+    const eligibleQueue = cleanupQueue.filter((f) => !isSystemPath(f.path))
+    if (eligibleQueue.length === 0) {
+      setMessage('No non-system files in queue to delete.')
+      return
+    }
+
+    const totalSize = eligibleQueue.reduce((sum, file) => sum + (file.size || 0), 0)
+    const confirmed = window.confirm(`Move ${eligibleQueue.length} file(s), ${formatBytes(totalSize)}, to the Recycle Bin?`)
     if (!confirmed) return
 
     const deletedSet = new Set<string>()
     let successCount = 0
     let failCount = 0
 
-    for (const file of cleanupQueue) {
+    for (const file of eligibleQueue) {
       try {
         await window.spaceManager.moveToTrash(file.path)
         deletedSet.add(file.path)
@@ -430,6 +449,11 @@ function App() {
   }
 
   async function trashFolder(folderPath: string, folderName: string) {
+    if (isSystemPath(folderPath)) {
+      alert(`Protection Error: Cannot delete "${folderName}". It is a protected Windows system path or root drive.`)
+      return
+    }
+
     const confirmed = window.confirm(`Move folder "${folderName}" and all its contents to the Recycle Bin?\n\n${folderPath}`)
     if (!confirmed) return
 
