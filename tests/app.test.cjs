@@ -3,7 +3,7 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 const os = require('node:os')
-const { scanFolder, findDuplicates, hashFile, moveToTrash } = require('../electron/main.cjs')
+const { scanFolder, findDuplicates, hashFile, moveToTrash, isProtectedSystemPath } = require('../electron/main.cjs')
 
 test('Laptop Space Manager - Backend Test Suite', async (t) => {
   const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'lsm-test-'))
@@ -53,6 +53,21 @@ test('Laptop Space Manager - Backend Test Suite', async (t) => {
         await moveToTrash('')
       },
       /Path must be specified/i
+    )
+
+    // 1d. Test system folder protection blocks deletion
+    assert.equal(isProtectedSystemPath('C:\\Windows'), true)
+    assert.equal(isProtectedSystemPath('C:\\Windows\\System32'), true)
+    assert.equal(isProtectedSystemPath('C:\\Program Files'), true)
+    assert.equal(isProtectedSystemPath('C:'), true)
+    assert.equal(isProtectedSystemPath(realFile), false)
+
+    await assert.rejects(
+      async () => {
+        await moveToTrash('C:\\Windows\\System32\\calc.exe')
+      },
+      /Protection Error: Deletion of system or protected path/i,
+      'System paths must be strictly blocked from deletion'
     )
   })
 

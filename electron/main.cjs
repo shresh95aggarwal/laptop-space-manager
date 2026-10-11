@@ -137,8 +137,32 @@ if (app) {
 }
 
 /**
+ * Checks if a path is a critical system directory or drive root
+ * that should be protected from deletion or scanned with a warning.
+ */
+function isProtectedSystemPath(targetPath) {
+  if (!targetPath) return false
+  const trimmed = targetPath.trim()
+  if (/^[a-z]:[\\/]*$/i.test(trimmed)) return true
+
+  const resolved = path.resolve(trimmed)
+  const norm = resolved.toLowerCase().replace(/[\\/]+$/, '')
+
+  const winDir = (process.env.SystemRoot || process.env.windir || 'C:\\Windows').toLowerCase().replace(/[\\/]+$/, '')
+  const progFiles = (process.env['ProgramFiles'] || 'C:\\Program Files').toLowerCase().replace(/[\\/]+$/, '')
+  const progFilesX86 = (process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)').toLowerCase().replace(/[\\/]+$/, '')
+  const progData = (process.env['ProgramData'] || 'C:\\ProgramData').toLowerCase().replace(/[\\/]+$/, '')
+
+  const protectedRoots = [winDir, progFiles, progFilesX86, progData]
+
+  return protectedRoots.some((root) => norm === root || norm.startsWith(root + '\\'))
+}
+
+/**
  * Move file or directory to the OS Recycle Bin.
- * SAFETY RULE: Never fall back to permanent deletion (such as fs.rm).
+ * SAFETY RULE 1: Critical system paths (Windows, Program Files, Drive roots)
+ * are hard-blocked from deletion.
+ * SAFETY RULE 2: Never fall back to permanent deletion (such as fs.rm).
  * If trashItem fails, return/throw a clear error preserving the item.
  *
  * @param {string} filePath - Path to file or folder
@@ -151,6 +175,11 @@ async function moveToTrash(filePath, options = {}) {
   }
 
   const normalizedPath = path.normalize(path.resolve(filePath))
+
+  if (isProtectedSystemPath(normalizedPath)) {
+    throw new Error(`Protection Error: Deletion of system or protected path "${normalizedPath}" is blocked.`)
+  }
+
   const trashFn = options.trashItem || (shell ? (p) => shell.trashItem(p) : null)
 
   if (!trashFn) {
@@ -491,4 +520,5 @@ module.exports = {
   findDuplicates,
   hashFile,
   moveToTrash,
+  isProtectedSystemPath,
 }
