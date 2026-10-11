@@ -10,6 +10,7 @@ Laptop storage fills up over time, and files are distributed across many folders
 - Which files are very large
 - Which file types are taking space
 - Which files are duplicates
+- Which folders are empty
 - Which files are safe to delete
 
 ## Product goal
@@ -25,49 +26,40 @@ The app should be visual, practical, and safe by default.
 - Vite for development/build tooling
 - Electron for desktop file-system access
 
-Electron is used because a normal browser app cannot freely scan folders, open files in Explorer, or move files to the Recycle Bin.
-
 ## Current features
 
-- Choose a folder to scan
-- Fast scan folder/file sizes
-- Browse folders by size
-- Go inside folders step by step
+- **Queue Management**: "Remove from queue" button for individual files and a "Reset / Clear queue" button to reset the entire list
+- **Interactive Path Breadcrumbs**: Clickable folder path navigation (`📂 Projects / laptop-space-manager / src`) instead of a single "Up" button
+- **Folder "Show" Action**: Reveals folders directly in Windows File Explorer
+- **Common Live Search**: Search bar filters both subfolders AND files simultaneously with a matching count summary
+- Streamlined two-step selection flow: pick 1 or multiple folders via a single dialog
+- **Fast Scan** (`⚡ Fast scan`) for rapid folder/file mapping without content-hashing
+- **Full Scan** (`🔥 Full scan`) for complete analysis including automatic duplicate hashing in one step
+- **Live List Refresh**: Deleting any file or folder instantly updates all UI tables, tiles, folder trees, duplicate lists, and totals
+- Browse folders by size with **Delete Folder** action
+- Detect empty folders with **Empty Badge** and empty folder list in Cleanup panel
+- Report permission errors and skipped paths in a dedicated **Errors / Skipped** tab
 - List view and tile view
-- View largest files
-- View file types by total size
-- Run duplicate detection separately
-- Show fast-scan progress while scanning
-- Cancel a running fast scan
-- Select multiple scan locations
-- Track scan jobs
-- Search and filter files
-- Review cleanup suggestions
-- Queue files before moving them to the Recycle Bin
+- Real-time scan progress bar and elapsed time
+- Cancel running scans
+- Scan job queue for multiple locations
+- Filter by category (videos, images, installers, archives, docs) or minimum size
 - Open file location in Windows Explorer
-- Move files to the Windows Recycle Bin
+- Move files and folders safely to the Windows Recycle Bin
 
 ## Safety principles
 
-- Do not permanently delete files
-- Use the Recycle Bin for delete actions
-- Ask confirmation before moving files to trash
+- Do not permanently delete files or folders
+- Use the Windows Recycle Bin for all delete actions
+- Ask confirmation before moving files or folders to trash
 - Encourage users to start with personal folders like Downloads, Documents, Pictures, Videos, and Desktop
 - Avoid system folders by default
 
 ## Performance direction
 
-The first version tried to find duplicates during the normal scan. That was slow because duplicate detection requires reading file contents.
-
-The improved approach is:
-
-1. Fast scan first
-   - folder sizes
-   - file sizes
-   - file types
-2. Duplicate scan only when requested
-   - compare same-size files
-   - hash contents only for possible duplicates
+1. Fast scan first: folder sizes, file sizes, file types, empty folders
+2. Full scan: runs fast scan + duplicate content-hashing in one automated sequence
+3. Live state mutation: immediately removes trashed items from memory so re-scanning is not required after deletion
 
 ## Inspiration from existing tools
 
@@ -86,52 +78,4 @@ The improved approach is:
 - Safer duplicate cleanup workflow
 - Persistent scan jobs
 - Background scan worker process
-- Full-disk local index
-
-### Full laptop management
-
-Add a local disk index so the app can manage the complete laptop instead of scanning one folder every time.
-
-Possible flow:
-
-1. First full scan creates a local map of files and folders.
-2. App opens later and loads the previous map instantly.
-3. A background refresh checks what changed.
-4. New files are added, deleted files are removed, changed files are updated.
-
-Possible stored fields:
-
-- file path
-- file name
-- file extension/type
-- file size
-- modified date
-- created date
-- parent folder
-- optional content hash for duplicate detection
-
-### Local storage options
-
-Start simple:
-
-- JSON file for small experiments
-
-Better long-term:
-
-- SQLite database stored locally in the app data folder
-
-SQLite is better for a large file index because it can sort, filter, and update many records efficiently without needing a backend server.
-
-## Possible app sections
-
-- Dashboard
-- Folder Browser
-- Files
-- File Types
-- Duplicates
-- Cleanup Suggestions
-- Settings
-
-## Deployment / distribution later
-
-This project can be pushed to GitHub as source code first. Later, it can be packaged into a Windows installer using Electron packaging tools.
+- Full-disk local index (using SQLite)

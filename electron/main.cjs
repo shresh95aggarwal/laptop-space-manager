@@ -73,12 +73,28 @@ ipcMain.handle('get-common-locations', async () => {
 })
 
 ipcMain.handle('open-path', async (_event, filePath) => {
-  return shell.showItemInFolder(filePath)
+  if (!filePath) return false
+  const normalizedPath = path.normalize(path.resolve(filePath))
+  return shell.showItemInFolder(normalizedPath)
 })
 
 ipcMain.handle('move-to-trash', async (_event, filePath) => {
-  await shell.trashItem(filePath)
-  return true
+  if (!filePath) return false
+  const normalizedPath = path.normalize(path.resolve(filePath))
+
+  try {
+    await shell.trashItem(normalizedPath)
+    return true
+  } catch (error) {
+    console.warn('shell.trashItem failed, attempting fallback fs.rm:', normalizedPath, error)
+    try {
+      await fs.rm(normalizedPath, { recursive: true, force: true })
+      return true
+    } catch (fallbackError) {
+      console.error('fs.rm fallback also failed:', normalizedPath, fallbackError)
+      throw fallbackError
+    }
+  }
 })
 
 ipcMain.handle('scan-folder', async (_event, folderPath) => {
