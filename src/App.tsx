@@ -72,6 +72,7 @@ function App() {
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [minSizeMb, setMinSizeMb] = useState('')
   const [cleanupQueue, setCleanupQueue] = useState<FileSummary[]>([])
+  const [diskSpace, setDiskSpace] = useState<{ total: number; free: number; used: number } | null>(null)
   const [message, setMessage] = useState('Select one or more folders to begin scanning.')
 
   useEffect(() => {
@@ -176,6 +177,7 @@ function App() {
       setCurrentFolder(lastResult.rootPath)
       setActiveTab('browse')
       setMessage(`Fast scan complete in ${((lastResult.durationMs || 0) / 1000).toFixed(1)}s!`)
+      window.spaceManager.getDiskSpace(lastResult.rootPath).then(setDiskSpace).catch(() => {})
     }
 
     setIsScanning(false)
@@ -226,6 +228,7 @@ function App() {
       setCurrentFolder(lastResult.rootPath)
       setActiveTab('browse')
       setMessage(`Full scan complete! All sizes, duplicates, and suggestions are ready.`)
+      window.spaceManager.getDiskSpace(lastResult.rootPath).then(setDiskSpace).catch(() => {})
     }
 
     setIsScanning(false)
@@ -481,6 +484,18 @@ function App() {
               <Stat label="Empty folders" value={(result.totals?.emptyFolders || 0).toLocaleString()} />
               <Stat label="Errors / Skipped" value={(result.totals?.errors || 0).toLocaleString()} />
             </section>
+
+            {diskSpace && (
+              <section className="stat-card" style={{ marginBottom: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                  <span>Drive Capacity ({result.rootPath.slice(0, 2) || 'Active Drive'})</span>
+                  <strong>{formatBytes(diskSpace.free)} free of {formatBytes(diskSpace.total)}</strong>
+                </div>
+                <div style={{ background: '#e2e8f0', borderRadius: '999px', height: '10px', overflow: 'hidden' }}>
+                  <div style={{ background: '#2563eb', height: '100%', width: `${Math.min(100, Math.round((diskSpace.used / diskSpace.total) * 100))}%` }} />
+                </div>
+              </section>
+            )}
 
             <section className="panel">
               <div className="toolbar">

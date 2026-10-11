@@ -75,6 +75,19 @@ if (app) {
     ]
   })
 
+  ipcMain.handle('get-disk-space', async (_event, targetPath) => {
+    try {
+      const resolved = targetPath ? path.resolve(targetPath) : process.cwd()
+      const stats = await fs.statfs(resolved)
+      const total = stats.bsize * stats.blocks
+      const free = stats.bsize * stats.bfree
+      const used = total - free
+      return { total, free, used }
+    } catch {
+      return null
+    }
+  })
+
   ipcMain.handle('open-path', async (_event, filePath) => {
     if (!filePath) return false
     const normalizedPath = path.normalize(path.resolve(filePath))

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('spaceManager', {
   findDuplicates: (folderPath) => ipcRenderer.invoke('find-duplicates', folderPath),
   openPath: (filePath) => ipcRenderer.invoke('open-path', filePath),
   moveToTrash: (filePath) => ipcRenderer.invoke('move-to-trash', filePath),
+  getDiskSpace: (targetPath) => ipcRenderer.invoke('get-disk-space', targetPath),
   onScanProgress: (callback) => {
     const listener = (_event, progress) => callback(progress)
     ipcRenderer.on('scan-progress', listener)

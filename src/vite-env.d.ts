@@ -77,6 +77,7 @@ interface Window {
     findDuplicates: (folderPath: string) => Promise<Pick<ScanResult['totals'], 'duplicateBytes'> & { duplicateGroups: DuplicateGroup[] }>
     openPath: (filePath: string) => Promise<void>
     moveToTrash: (filePath: string) => Promise<boolean>
+    getDiskSpace: (targetPath: string) => Promise<{ total: number; free: number; used: number } | null>
     onScanProgress: (callback: (progress: ScanProgress) => void) => () => void
   }
 }
